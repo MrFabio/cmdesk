@@ -2,10 +2,10 @@ import type { ReactNode } from "react";
 import { X } from "lucide-react";
 import { attrOf } from "@/lib/cm/parse";
 import { buildLookups, conditionText, money, personLabel, wageText } from "@/lib/cm/labels";
-import { attrRanksFor } from "@/lib/cm/positions";
+import { attrRankTitle, attrRanksFor } from "@/lib/cm/positions";
 import { ATTRS, FLAG, GROUPS, type ParsedSave } from "@/lib/cm/types";
 import { useSettings } from "@/lib/cm/settings";
-import { attrRankLabel, attrRankRow, attrRankTitle } from "./ui";
+import { attrRankLabel, attrRankRow } from "./ui";
 import { PlayerCompare } from "./player-compare";
 import { PositionPitch } from "./pitch";
 import { MoraleText, Stat } from "./stat";
@@ -146,7 +146,7 @@ export function PlayerView({
                   return (
                     <li
                       key={attr.key}
-                      title={attrRankTitle(rank)}
+                      title={attrRankTitle(attr.key, rank)}
                       className={`flex items-center justify-between py-1 text-sm ${rank ? "px-2" : ""} ${attrRankRow(rank)}`}
                     >
                       <span className={attrRankLabel(rank)}>{attr.label}</span>
@@ -165,16 +165,19 @@ export function PlayerView({
 
 function AttrRankKey() {
   return (
-    <p className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-faint">
-      <span className="inline-flex items-center gap-1.5">
-        <i className="h-3 w-0.5 bg-accent" aria-hidden="true" />
-        0.10 and up
-      </span>
-      <span className="inline-flex items-center gap-1.5">
-        <i className="h-3 w-0.5 bg-secondary" aria-hidden="true" />
-        0.05–0.10
-      </span>
-    </p>
+    <div className="mb-3 space-y-1 text-xs text-faint">
+      <p className="flex flex-wrap gap-x-4 gap-y-1">
+        <span className="inline-flex items-center gap-1.5">
+          <i className="h-3 w-0.5 bg-accent" aria-hidden="true" />
+          0.10 and up
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <i className="h-3 w-0.5 bg-secondary" aria-hidden="true" />
+          0.05–0.10
+        </span>
+      </p>
+      <p>Hidden uses the same bars: Consistency and Important matches, then Versatility, Temperament, and Pressure.</p>
+    </div>
   );
 }
 

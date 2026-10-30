@@ -2,11 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { attrOf } from "@/lib/cm/parse";
 import { money, personLabel, wageText } from "@/lib/cm/labels";
 import { squadOf } from "@/lib/cm/query";
-import { attrRanksFor, type AttrRank } from "@/lib/cm/positions";
-import { ATTRS, GROUPS, ROLES, type ParsedSave, type PlayerRec } from "@/lib/cm/types";
+import { attrRankTitle, attrRanksFor, type AttrRank } from "@/lib/cm/positions";
+import { ATTRS, GROUPS, ROLES, type AttrKey, type ParsedSave, type PlayerRec } from "@/lib/cm/types";
 import { useSettings } from "@/lib/cm/settings";
 import { Stat } from "./stat";
-import { attrRankLabel, attrRankRow, attrRankTitle, control } from "./ui";
+import { attrRankLabel, attrRankRow, control } from "./ui";
 
 export function PlayerCompare({ save, index }: { save: ParsedSave; index: number }) {
   const showPa = useSettings((state) => state.showPa);
@@ -125,6 +125,7 @@ export function PlayerCompare({ save, index }: { save: ParsedSave; index: number
                 {ATTRS.filter((attr) => attr.group === group.id).map((attr) => (
                   <CompareAttr
                     key={attr.key}
+                    attrKey={attr.key}
                     label={attr.label}
                     rank={ranks.get(attr.key)}
                     left={attrOf(save, index, attr.key)}
@@ -177,11 +178,13 @@ function CompareAbility({ label, left, right }: { label: string; left: number; r
 }
 
 function CompareAttr({
+  attrKey,
   label,
   left,
   right,
   rank,
 }: {
+  attrKey: AttrKey;
   label: string;
   left: number;
   right: number;
@@ -189,7 +192,7 @@ function CompareAttr({
 }) {
   return (
     <li
-      title={attrRankTitle(rank)}
+      title={attrRankTitle(attrKey, rank)}
       className={`grid grid-cols-[1fr_auto_1fr] items-center gap-2 py-1 text-sm ${attrRankRow(rank)}`}
     >
       <span className="text-right">

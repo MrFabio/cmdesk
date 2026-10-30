@@ -12,6 +12,7 @@ import {
   squadOf,
 } from "@/lib/cm/query";
 import { matchLineup } from "@/lib/cm/match";
+import { suggestionFor } from "@/lib/cm/suggest";
 import { rankSetPiece, SET_PIECES, setPieceById, type SetPieceId } from "@/lib/cm/set-pieces";
 import { useDesk } from "@/lib/cm/store";
 import { useSettings } from "@/lib/cm/settings";
@@ -75,6 +76,7 @@ export function DeskApp() {
   const [over, setOver] = useState(false);
   const [warnOn, setWarnOn] = useState(true);
   const [clubTool, setClubTool] = useState<ClubTool>("squad");
+  const [matchMode, setMatchMode] = useState<"picked" | "suggested">("picked");
 
   useEffect(() => {
     const apply = () => {
@@ -109,16 +111,23 @@ export function DeskApp() {
     const club = save.clubs.find((row) => row.id === place.clubId);
     return club ? matchLineup(save, club) : null;
   }, [save, place, clubTool]);
+  const suggestion = useMemo(() => {
+    if (!save || place.kind !== "club" || clubTool !== "match" || matchMode !== "suggested" || !lineup) return null;
+    const club = save.clubs.find((row) => row.id === place.clubId);
+    return club ? suggestionFor(save, club, lineup, squadOf(save, place.clubId)) : null;
+  }, [save, place, clubTool, matchMode, lineup]);
   const ranked = useMemo(() => {
     if (!save || place.kind !== "club" || clubTool === "squad" || clubTool === "match") return [];
     return rankSetPiece(save, squadOf(save, place.clubId), clubTool);
   }, [save, place, clubTool]);
   const navRows =
-    place.kind === "club" && clubTool === "match" && lineup
-      ? lineup.list
-      : place.kind === "club" && clubTool !== "squad"
-        ? ranked
-        : rows;
+    place.kind === "club" && clubTool === "match" && matchMode === "suggested" && suggestion
+      ? [...suggestion.pitch.filter((pick) => pick !== null), ...suggestion.bench]
+      : place.kind === "club" && clubTool === "match" && lineup
+        ? lineup.list
+        : place.kind === "club" && clubTool !== "squad"
+          ? ranked
+          : rows;
   const filterCount = activeFilterCount(filters);
 
   function cycleSort(column: ColumnId) {
@@ -463,6 +472,7 @@ export function DeskApp() {
                             className={chipClass(on)}
                             onClick={() => {
                               setClubTool(tool.id);
+                              if (tool.id === "match") setMatchMode("picked");
                               setHighlight(0);
                             }}
                           >
@@ -477,6 +487,12 @@ export function DeskApp() {
               {place.kind === "club" && clubTool === "match" && lineup ? (
                 <MatchView
                   lineup={lineup}
+                  suggestion={suggestion}
+                  mode={matchMode}
+                  onMode={(next) => {
+                    setMatchMode(next);
+                    setHighlight(0);
+                  }}
                   highlight={highlight}
                   onHighlight={setHighlight}
                   onOpen={openPlayer}

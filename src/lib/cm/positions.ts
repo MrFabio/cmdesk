@@ -19,6 +19,28 @@ const SECONDARY = 0.05;
 
 export type AttrRank = "primary" | "secondary";
 
+/**
+ * Hidden attributes the match reads for every player. They are not in the
+ * position-rating fit. Primary changes the level he plays at. Secondary is
+ * read in a narrower case: out of position, a foul, or a tense moment.
+ * Dirtiness and Injury proneness stay unmarked because a higher number is worse.
+ */
+const HIDDEN: Partial<Record<AttrKey, AttrRank>> = {
+  consistency: "primary",
+  importantMatches: "primary",
+  versatility: "secondary",
+  temperament: "secondary",
+  pressure: "secondary",
+};
+
+const HIDDEN_TITLE: Partial<Record<AttrKey, string>> = {
+  consistency: "How often he plays to his attributes",
+  importantMatches: "How he plays in a big game",
+  versatility: "Shrinks the out-of-position penalty",
+  temperament: "Whether a challenge becomes a foul",
+  pressure: "How he handles a tense moment",
+};
+
 const WEIGHTS: Record<Slot, Partial<Record<AttrKey, number>>> = {
   GK: { handling: 0.159, agility: 0.069, reflexes: 0.06 },
   SW: {
@@ -206,7 +228,18 @@ export function attrRanksFor(posMask: number, sideMask: number): Map<AttrKey, At
       ranks.set(key, rank);
     }
   }
+  for (const key of Object.keys(HIDDEN) as AttrKey[]) {
+    const rank = HIDDEN[key];
+    if (!rank || ranks.get(key) === "primary") continue;
+    ranks.set(key, rank);
+  }
   return ranks;
+}
+
+/** Hover text for a marked row. Hidden rows explain the match effect. */
+export function attrRankTitle(key: AttrKey, rank: AttrRank | undefined): string | undefined {
+  if (!rank) return undefined;
+  return HIDDEN_TITLE[key] ?? (rank === "primary" ? "Position weight 0.10 or more" : "Position weight 0.05 to 0.10");
 }
 
 /** A goalkeeper with no outfield position. Set pieces are not their job. */
@@ -261,4 +294,60 @@ export function playedSpots(posMask: number, sideMask: number): Set<PitchSpot> {
   line(AM, "AML", "AMC", "AMR");
   line(F, "FL", "FC", "FR");
   return spots;
+}
+
+const LINE_SPOTS: Partial<Record<number, readonly [PitchSpot, PitchSpot, PitchSpot]>> = {
+  2: ["DL", "DC", "DR"],
+  3: ["DML", "DMC", "DMR"],
+  4: ["ML", "MC", "MR"],
+  5: ["AML", "AMC", "AMR"],
+  6: ["FL", "FC", "FR"],
+};
+
+/**
+ * Spots that count as natural for one overview circle.
+ * Columns are left, centre-left, centre, centre-right, right.
+ * Centre-left accepts a left or a central player. Forwards share one weight set.
+ */
+export function circleSpots(row: number, col: number): PitchSpot[] {
+  if (row === 0) return ["GK"];
+  if (row === 1) return ["SW"];
+  const line = LINE_SPOTS[row];
+  if (!line) return [];
+  const [left, centre, right] = line;
+  if (col <= 0) return [left];
+  if (col === 1) return [left, centre];
+  if (col === 2) return [centre];
+  if (col === 3) return [centre, right];
+  return [right];
+}
+
+function fitSlot(row: number, col: number): Slot {
+  if (row <= 0) return "GK";
+  if (row === 1) return "SW";
+  const wide = col <= 0 || col >= 4;
+  if (row === 2) return wide ? "DL" : "DC";
+  if (row === 3) return wide ? "DML" : "DMC";
+  if (row === 4) return wide ? "ML" : "MC";
+  if (row === 5) return wide ? "AML" : "AMC";
+  return "FC";
+}
+
+/**
+ * Position rating for one circle, 0 when no attribute is known.
+ * Values may pass 20: that is the in-match figure, and it is not capped.
+ */
+export function positionFit(row: number, col: number, valueOf: (key: AttrKey) => number): number {
+  const weights = WEIGHTS[fitSlot(row, col)];
+  let sum = 0;
+  let weightSum = 0;
+  for (const key of Object.keys(weights) as AttrKey[]) {
+    const value = valueOf(key);
+    const weight = weights[key] ?? 0;
+    if (weight <= 0 || !Number.isFinite(value) || value < 0) continue;
+    sum += weight * value;
+    weightSum += weight;
+  }
+  if (weightSum <= 0) return 0;
+  return (sum / weightSum) * 5;
 }

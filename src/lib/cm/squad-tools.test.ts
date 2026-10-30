@@ -5,13 +5,21 @@ import { attrRanksFor, playedSpots, type AttrRank, type PitchSpot } from "./posi
 import { rankSetPiece } from "./set-pieces.ts";
 import { ATTRS, ATTR_INDEX, type AttrKey, type ParsedSave, type PlayerRec } from "./types.ts";
 
-function ranks(mask: number, side: number): Record<string, AttrRank> {
-  return Object.fromEntries(attrRanksFor(mask, side));
+const HIDDEN = {
+  consistency: "primary",
+  importantMatches: "primary",
+  pressure: "secondary",
+  temperament: "secondary",
+  versatility: "secondary",
+} as const;
+
+function expectRanks(mask: number, side: number, position: Record<string, AttrRank> = {}) {
+  assert.deepEqual(Object.fromEntries(attrRanksFor(mask, side)), { ...HIDDEN, ...position });
 }
 
 describe("key attributes for a position", () => {
   it("marks Handling as primary and Reflexes and Agility as secondary for a goalkeeper", () => {
-    assert.deepEqual(ranks(1, 0), {
+    expectRanks(1, 0, {
       agility: "secondary",
       handling: "primary",
       reflexes: "secondary",
@@ -23,11 +31,11 @@ describe("key attributes for a position", () => {
   });
 
   it("marks Marking and Positioning for a central defender, not the wide-back set", () => {
-    assert.deepEqual(ranks(4, 4), { marking: "primary", positioning: "primary" });
+    expectRanks(4, 4, { marking: "primary", positioning: "primary" });
   });
 
   it("marks the wide-back set for a right-back, with the next band secondary", () => {
-    assert.deepEqual(ranks(4, 1), {
+    expectRanks(4, 1, {
       dribbling: "primary",
       jumping: "secondary",
       movement: "secondary",
@@ -39,7 +47,7 @@ describe("key attributes for a position", () => {
   });
 
   it("unions central and wide when the player covers both sides", () => {
-    assert.deepEqual(ranks(4, 7), {
+    expectRanks(4, 7, {
       dribbling: "primary",
       jumping: "secondary",
       marking: "primary",
@@ -52,7 +60,7 @@ describe("key attributes for a position", () => {
   });
 
   it("keeps Positioning primary for a defensive mid and marks the next band secondary", () => {
-    assert.deepEqual(ranks(8, 4), {
+    expectRanks(8, 4, {
       movement: "secondary",
       passing: "secondary",
       positioning: "primary",
@@ -69,7 +77,7 @@ describe("key attributes for a position", () => {
   });
 
   it("marks a forward's main three as primary and leaves Finishing and Heading off", () => {
-    assert.deepEqual(ranks(64, 4), {
+    expectRanks(64, 4, {
       dribbling: "secondary",
       jumping: "primary",
       movement: "primary",
@@ -81,11 +89,11 @@ describe("key attributes for a position", () => {
   });
 
   it("uses central-defender weights for a sweeper", () => {
-    assert.deepEqual(ranks(2, 4), { marking: "primary", positioning: "primary" });
+    expectRanks(2, 4, { marking: "primary", positioning: "primary" });
   });
 
   it("uses wide-mid weights for a wide attacking mid", () => {
-    assert.deepEqual(ranks(32, 1), {
+    expectRanks(32, 1, {
       dribbling: "primary",
       movement: "primary",
       passing: "secondary",
@@ -95,8 +103,12 @@ describe("key attributes for a position", () => {
     });
   });
 
-  it("marks nothing when the player has no position", () => {
-    assert.equal(attrRanksFor(0, 0).size, 0);
+  it("still marks the match hidden attributes when the player has no position", () => {
+    expectRanks(0, 0);
+    const marked = attrRanksFor(0, 0);
+    assert.equal(marked.has("dirtiness"), false);
+    assert.equal(marked.has("injuryProneness"), false);
+    assert.equal(marked.has("determination"), false);
   });
 });
 

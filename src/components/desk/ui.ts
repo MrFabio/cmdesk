@@ -33,9 +33,3 @@ export function attrRankLabel(rank: AttrRank | undefined): string {
   if (rank === "secondary") return "font-medium text-secondary";
   return "text-muted";
 }
-
-export function attrRankTitle(rank: AttrRank | undefined): string | undefined {
-  if (rank === "primary") return "Position weight 0.10 or more";
-  if (rank === "secondary") return "Position weight 0.05 to 0.10";
-  return undefined;
-}
