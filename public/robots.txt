@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://mrfabio.github.io/cmdesk/sitemap.xml

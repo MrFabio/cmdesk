@@ -1,0 +1,54 @@
+# Publishes the static CMdesk site to GitHub Pages.
+# In the repo: Settings → Pages → Build and deployment → Source: GitHub Actions.
+# Project sites are served from /<repo>/. User sites (*.github.io) and custom
+# domains are served from /. Override either by setting the repository variable
+# PAGES_BASE (include the slashes, for example / or /cmdesk/).
+name: Pages
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Choose the public path
+        run: |
+          if [ -n "${{ vars.PAGES_BASE }}" ]; then
+            echo "PAGES_BASE=${{ vars.PAGES_BASE }}" >> "$GITHUB_ENV"
+          elif [[ "${{ github.event.repository.name }}" == *.github.io ]]; then
+            echo "PAGES_BASE=/" >> "$GITHUB_ENV"
+          else
+            echo "PAGES_BASE=/${{ github.event.repository.name }}/" >> "$GITHUB_ENV"
+          fi
+      - run: npm run build:pages
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/client
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
