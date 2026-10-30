@@ -23,7 +23,12 @@
   --color-line: #cbbfaa;
   --color-accent: #8e1d1d;
   --color-accent-ink: #f6f1e6;
+  --color-secondary: #1a4f7a;
   --color-danger: #8e1d1d;
+  --color-pitch: #1a4a38;
+  --color-pitch-line: #d7eadc;
+  --color-pitch-spot: #241418;
+  --color-pitch-play: #b6f26a;
 
   --radius-sm: 0.25rem;
   --radius: 0.375rem;
@@ -188,6 +193,7 @@ html[data-theme="programme"] {
   --color-line: #d9d0c0;
   --color-accent: #1b4332;
   --color-accent-ink: #f6f1e6;
+  --color-secondary: #1a4f7a;
   --color-danger: #8e1d1d;
 }
 html[data-theme="programme"] body {
@@ -205,6 +211,7 @@ html[data-theme="floodlight"] {
   --color-line: #243140;
   --color-accent: #ff5a45;
   --color-accent-ink: #1a0706;
+  --color-secondary: #7eb6ef;
   --color-danger: #ff5a45;
 }
 
@@ -219,6 +226,7 @@ html[data-theme="ledger"] {
   --color-line: #c4c0b6;
   --color-accent: #1c2838;
   --color-accent-ink: #f4f1ea;
+  --color-secondary: #8a4b12;
   --color-danger: #8e1d1d;
 }
 

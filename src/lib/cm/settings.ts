@@ -27,14 +27,15 @@ export const COLUMN_DEFS = [
   { id: "pos", label: "Position", locked: false },
   { id: "age", label: "Age", locked: false },
   { id: "nat", label: "Nation", locked: false },
+  { id: "morale", label: "Morale", locked: false },
+  { id: "condition", label: "Condition", locked: false },
   { id: "club", label: "Club", locked: false },
   { id: "ca", label: "Ability", locked: false },
   { id: "pa", label: "Potential", locked: false },
-  { id: "wage", label: "Wage", locked: false },
   { id: "value", label: "Value", locked: false },
+  { id: "wage", label: "Wage", locked: false },
   { id: "expires", label: "Contract", locked: false },
   { id: "status", label: "Status", locked: false },
-  { id: "morale", label: "Morale", locked: false },
 ] as const;
 
 export type ColumnId = (typeof COLUMN_DEFS)[number]["id"];
@@ -42,14 +43,12 @@ export type ColumnId = (typeof COLUMN_DEFS)[number]["id"];
 export const MUTE_STOPS = [0, 8, 11, 15] as const;
 export type MuteBelow = (typeof MUTE_STOPS)[number];
 
-const OPTIONAL: ColumnId[] = ["morale"];
-
 function defaultColumns(): Record<ColumnId, boolean> {
-  return Object.fromEntries(COLUMN_DEFS.map((column) => [column.id, !OPTIONAL.includes(column.id)])) as Record<
-    ColumnId,
-    boolean
-  >;
+  return Object.fromEntries(COLUMN_DEFS.map((column) => [column.id, true])) as Record<ColumnId, boolean>;
 }
+
+/** Bumped when the default column set should replace a saved one. */
+const COLUMNS_REV = 1;
 
 type Persisted = {
   theme: ThemeId;
@@ -58,6 +57,7 @@ type Persisted = {
   nameStyle: "common" | "full";
   density: "compact" | "comfortable";
   columns: Record<ColumnId, boolean>;
+  columnsRev: number;
   hideGkOutfield: boolean;
   muteBelow: MuteBelow;
   rememberSort: boolean;
@@ -90,6 +90,7 @@ const initial: Persisted = {
   nameStyle: "common",
   density: "comfortable",
   columns: defaultColumns(),
+  columnsRev: COLUMNS_REV,
   hideGkOutfield: false,
   muteBelow: 0,
   rememberSort: true,
@@ -165,12 +166,16 @@ export const useSettings = create<Settings>()(
     }),
     {
       name: "cmdesk-settings",
-      version: 2,
+      version: 5,
       storage: renamedStorage("savedesk-settings"),
       migrate: (persisted, version) => {
         const state = (persisted ?? {}) as Partial<Persisted>;
         if (version < 2) {
           state.columns = { ...defaultColumns(), ...state.columns, name: true, value: true };
+        }
+        if (version < 5) {
+          state.columns = defaultColumns();
+          state.columnsRev = COLUMNS_REV;
         }
         return state as Persisted;
       },
@@ -181,6 +186,7 @@ export const useSettings = create<Settings>()(
         nameStyle: state.nameStyle,
         density: state.density,
         columns: state.columns,
+        columnsRev: state.columnsRev,
         hideGkOutfield: state.hideGkOutfield,
         muteBelow: state.muteBelow,
         rememberSort: state.rememberSort,
@@ -191,10 +197,15 @@ export const useSettings = create<Settings>()(
       }),
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<Persisted>;
+        const columns = { ...defaultColumns(), ...saved.columns, name: true };
+        if ((saved.columnsRev ?? 0) < COLUMNS_REV) {
+          for (const column of COLUMN_DEFS) columns[column.id] = true;
+        }
         return {
           ...current,
           ...saved,
-          columns: { ...defaultColumns(), ...saved.columns, name: true },
+          columns,
+          columnsRev: COLUMNS_REV,
           theme: asTheme(saved.theme ?? current.theme),
           muteBelow: asMute(saved.muteBelow ?? current.muteBelow),
           sortKey: asSortKey(saved.sortKey ?? current.sortKey),

@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import type { Hit, SortDir, SortKey } from "@/lib/cm/query";
-import { money, personLabel, wageText, type Lookups } from "@/lib/cm/labels";
+import { conditionText, money, personLabel, wageText, type Lookups } from "@/lib/cm/labels";
 import { COLUMN_DEFS, type ColumnId, useSettings } from "@/lib/cm/settings";
 import type { ParsedSave } from "@/lib/cm/types";
-import { Stat } from "./stat";
+import { MoraleText, Stat } from "./stat";
 import { StatusPills } from "./status-pills";
 
 const WIDTH: Record<ColumnId, number> = {
@@ -19,7 +19,8 @@ const WIDTH: Record<ColumnId, number> = {
   value: 5.25,
   expires: 6.25,
   status: 14,
-  morale: 3.5,
+  morale: 4.5,
+  condition: 5.25,
 };
 
 export function SquadTable({
@@ -69,7 +70,8 @@ export function SquadTable({
       value: (hit) => <span className="font-mono text-xs">{money(hit.player.value, currency)}</span>,
       expires: (hit) => <span className="truncate font-mono text-xs">{hit.player.expiresLabel || "–"}</span>,
       status: (hit) => <StatusPills player={hit.player} save={save} />,
-      morale: (hit) => <span className="font-mono">{hit.player.morale || "–"}</span>,
+      morale: (hit) => <MoraleText value={hit.player.morale} compact />,
+      condition: (hit) => <span className="font-mono text-xs">{conditionText(hit.player.condition)}</span>,
     };
     return COLUMN_DEFS.filter((column) => {
       if (!columnsOn[column.id]) return false;
@@ -107,7 +109,7 @@ export function SquadTable({
   const start = Math.max(0, Math.floor(scrollTop / rowHeight) - 8);
   const count = Math.ceil(height / rowHeight) + 16;
   const slice = rows.slice(start, start + count);
-  const right = new Set(["age", "ca", "pa", "wage", "value", "morale"]);
+  const right = new Set(["age", "ca", "pa", "wage", "value", "condition"]);
 
   return (
     <div

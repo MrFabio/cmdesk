@@ -48,6 +48,7 @@ type Person = {
     ca: number;
     pa: number;
     morale: number;
+    condition?: number;
     roles: Partial<Record<Role, number>>;
     attrs: Record<string, number>;
     left: number;
@@ -243,6 +244,7 @@ function story(): Person[] {
       ca: 150,
       pa: 160,
       morale: 9,
+      condition: 100,
       roles: { gk: 20 },
       attrs: {
         ...attrsFrom(150, roll, { handling: 4, reflexes: 3, oneOnOnes: 3, pace: -6, finishing: -8 }),
@@ -268,6 +270,7 @@ function story(): Person[] {
       ca: 134,
       pa: 142,
       morale: 4,
+      condition: 64,
       roles: { f: 20, c: 20 },
       attrs: attrsFrom(134, roll, { finishing: 3, pace: 2, heading: 2, tackling: -4 }),
       left: 12,
@@ -521,6 +524,7 @@ function player(input: Omit<Person, "job" | "contracts" | "player"> & {
   ca: number;
   pa: number;
   morale: number;
+  condition?: number;
   roles: Partial<Record<Role, number>>;
   attrs: Record<string, number>;
   left: number;
@@ -550,6 +554,7 @@ function player(input: Omit<Person, "job" | "contracts" | "player"> & {
       ca: input.ca,
       pa: input.pa,
       morale: input.morale,
+      condition: input.condition,
       roles: input.roles,
       attrs: input.attrs,
       left: input.left,
@@ -746,6 +751,17 @@ export function buildSample(compressed = true): ArrayBuffer {
   putCstr(general, 0x824, "Northbridge", 40);
   writeDate(generalView, 3944, [2001, 10, 15]);
 
+  const FITNESS = 31;
+  const injuryBytes = new Uint8Array(people.length * FITNESS);
+  const injuryView = new DataView(injuryBytes.buffer);
+  people.forEach((person, index) => {
+    const at = index * FITNESS;
+    writeDate(injuryView, at, [2001, 10, 15]);
+    const percent = person.player?.condition ?? (person.player ? 80 + (index % 21) : 100);
+    injuryView.setUint16(at + 8, 10_000, true);
+    injuryView.setUint16(at + 10, percent * 100, true);
+  });
+
   const counted = [
     ["staff.dat", people.length],
     ["player.dat", playerCount],
@@ -779,6 +795,7 @@ export function buildSample(compressed = true): ArrayBuffer {
       { name: "player.dat", data: playerBytes },
       { name: "contract.dat", data: contractBytes },
       { name: "staff_history.dat", data: historyBytes },
+      { name: "injury.dat", data: injuryBytes },
     ],
     compressed,
   );

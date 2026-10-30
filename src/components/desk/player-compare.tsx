@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { attrOf } from "@/lib/cm/parse";
 import { money, personLabel, wageText } from "@/lib/cm/labels";
 import { squadOf } from "@/lib/cm/query";
+import { attrRanksFor, type AttrRank } from "@/lib/cm/positions";
 import { ATTRS, GROUPS, ROLES, type ParsedSave, type PlayerRec } from "@/lib/cm/types";
 import { useSettings } from "@/lib/cm/settings";
 import { Stat } from "./stat";
-import { control } from "./ui";
+import { attrRankLabel, attrRankRow, attrRankTitle, control } from "./ui";
 
 export function PlayerCompare({ save, index }: { save: ParsedSave; index: number }) {
   const showPa = useSettings((state) => state.showPa);
@@ -16,13 +17,16 @@ export function PlayerCompare({ save, index }: { save: ParsedSave; index: number
   const [otherIndex, setOtherIndex] = useState<number | null>(null);
 
   const clubId = save.humanClubId;
-  const clubName = clubId >= 0 ? (save.clubs.find((club) => club.id === clubId)?.name ?? "Your club") : null;
+  const clubName =
+    clubId >= 0 ? (save.clubs.find((club) => club.id === clubId)?.name ?? "Your club") : null;
 
   const candidates = useMemo(() => {
     if (!player || clubId < 0) return [];
     return squadOf(save, clubId)
       .filter((hit) => hit.index !== index && sharesPosition(player, hit.player))
-      .sort((a, b) => b.player.ca - a.player.ca || a.player.sortName.localeCompare(b.player.sortName));
+      .sort(
+        (a, b) => b.player.ca - a.player.ca || a.player.sortName.localeCompare(b.player.sortName),
+      );
   }, [save, clubId, index, player]);
 
   useEffect(() => {
@@ -40,12 +44,15 @@ export function PlayerCompare({ save, index }: { save: ParsedSave; index: number
     return (
       <section className="border-b border-line px-4 py-3">
         <h3 className="text-sm font-medium">Compare with squad</h3>
-        <p className="mt-1 text-xs text-muted">Mark a club as yours to compare against its squad.</p>
+        <p className="mt-1 text-xs text-muted">
+          Mark a club as yours to compare against its squad.
+        </p>
       </section>
     );
   }
 
   const other = otherIndex !== null ? save.players[otherIndex] : null;
+  const ranks = attrRanksFor(player.posMask, player.sideMask);
   const isGk = (player.posMask & 1) !== 0 || !!(other && (other.posMask & 1) !== 0);
   const groups = GROUPS.filter((group) => group.id !== "goalkeeping" || isGk);
 
@@ -84,7 +91,9 @@ export function PlayerCompare({ save, index }: { save: ParsedSave; index: number
           <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2 text-xs">
             <p className="min-w-0 truncate font-medium">{personLabel(player, nameStyle)}</p>
             <p className="text-faint">vs</p>
-            <p className="min-w-0 truncate text-right font-medium">{personLabel(other, nameStyle)}</p>
+            <p className="min-w-0 truncate text-right font-medium">
+              {personLabel(other, nameStyle)}
+            </p>
             <p className="text-faint">{player.pos}</p>
             <span />
             <p className="text-right text-faint">{other.pos}</p>
@@ -117,6 +126,7 @@ export function PlayerCompare({ save, index }: { save: ParsedSave; index: number
                   <CompareAttr
                     key={attr.key}
                     label={attr.label}
+                    rank={ranks.get(attr.key)}
                     left={attrOf(save, index, attr.key)}
                     right={attrOf(save, otherIndex, attr.key)}
                   />
@@ -166,13 +176,26 @@ function CompareAbility({ label, left, right }: { label: string; left: number; r
   );
 }
 
-function CompareAttr({ label, left, right }: { label: string; left: number; right: number }) {
+function CompareAttr({
+  label,
+  left,
+  right,
+  rank,
+}: {
+  label: string;
+  left: number;
+  right: number;
+  rank: AttrRank | undefined;
+}) {
   return (
-    <li className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 py-1 text-sm">
+    <li
+      title={attrRankTitle(rank)}
+      className={`grid grid-cols-[1fr_auto_1fr] items-center gap-2 py-1 text-sm ${attrRankRow(rank)}`}
+    >
       <span className="text-right">
         <Stat value={left} kind="attr" />
       </span>
-      <span className="w-28 text-center text-xs text-muted">
+      <span className={`w-28 text-center text-xs ${attrRankLabel(rank)}`}>
         {label}
         <Delta value={left >= 0 && right >= 0 ? left - right : 0} />
       </span>

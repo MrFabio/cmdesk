@@ -1,11 +1,14 @@
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
 import { attrOf } from "@/lib/cm/parse";
-import { buildLookups, money, personLabel, wageText } from "@/lib/cm/labels";
+import { buildLookups, conditionText, money, personLabel, wageText } from "@/lib/cm/labels";
+import { attrRanksFor } from "@/lib/cm/positions";
 import { ATTRS, FLAG, GROUPS, type ParsedSave } from "@/lib/cm/types";
 import { useSettings } from "@/lib/cm/settings";
+import { attrRankLabel, attrRankRow, attrRankTitle } from "./ui";
 import { PlayerCompare } from "./player-compare";
-import { Stat } from "./stat";
+import { PositionPitch } from "./pitch";
+import { MoraleText, Stat } from "./stat";
 import { StatusPills } from "./status-pills";
 
 export function PlayerView({
@@ -27,6 +30,7 @@ export function PlayerView({
   if (!player) return null;
   const lookups = buildLookups(save);
   const isGk = (player.posMask & 1) !== 0;
+  const ranks = attrRanksFor(player.posMask, player.sideMask);
   const onLoan = (player.flags & FLAG.loan) !== 0;
   const loanFrom =
     onLoan && player.loanFromClubId >= 0
@@ -56,13 +60,12 @@ export function PlayerView({
           },
         ]
       : []),
-    { label: "Wage", node: <span>{wageText(player.wage, currency, wagePeriod)}</span> },
-    { label: "Value", node: <span>{money(player.value, currency)}</span> },
     { label: "Born", node: <span>{player.dobLabel || "—"}</span> },
     { label: "Joined", node: <span>{player.joinedLabel || "—"}</span> },
     { label: "Expires", node: <span>{player.expiresLabel || "—"}</span> },
     { label: "Squad status", node: <span>{player.squadStatus || "—"}</span> },
-    { label: "Morale", node: <span>{player.morale ? String(player.morale) : "—"}</span> },
+    { label: "Morale", node: <MoraleText value={player.morale} /> },
+    { label: "Condition", node: <span>{conditionText(player.condition)}</span> },
     {
       label: "Release",
       node: <span>{player.releaseFee > 0 ? money(player.releaseFee, currency) : "—"}</span>,
@@ -80,7 +83,7 @@ export function PlayerView({
 
   return (
     <article className="flex h-full min-h-0 flex-col overflow-y-auto">
-      <header className="sticky top-0 z-10 border-b border-line bg-surface px-4 py-3">
+      <header className="@container sticky top-0 z-10 border-b border-line bg-surface px-4 py-3">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="truncate text-lg font-semibold">{personLabel(player, nameStyle)}</h2>
@@ -88,7 +91,7 @@ export function PlayerView({
               <p className="truncate text-xs text-faint">{player.fullName}</p>
             ) : null}
             <p className="mt-1 text-sm text-muted">
-              {player.pos} · {player.age || "—"} · {lookups.nation(player.nationId)}
+              {player.age ? `${player.age} years` : "—"} · {lookups.nation(player.nationId)}
               {player.squadNo ? ` · No. ${player.squadNo}` : ""}
             </p>
           </div>
@@ -101,9 +104,22 @@ export function PlayerView({
             <X className="size-4" aria-hidden="true" />
           </button>
         </div>
-        <div className="mt-3 flex items-end gap-6">
-          <Ability label="CA" value={player.ca} />
-          {showPa ? <Ability label="PA" value={player.pa} /> : null}
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <div className="grid min-w-0 flex-1 grid-cols-2 gap-x-3 gap-y-2">
+            <Metric label="CA">
+              <Stat value={player.ca} kind="ability" />
+            </Metric>
+            {showPa ? (
+              <Metric label="PA">
+                <Stat value={player.pa} kind="ability" />
+              </Metric>
+            ) : (
+              <span />
+            )}
+            <Metric label="Value">{money(player.value, currency)}</Metric>
+            <Metric label="Wage">{wageText(player.wage, currency, wagePeriod)}</Metric>
+          </div>
+          <PositionPitch posMask={player.posMask} sideMask={player.sideMask} label={player.pos} />
         </div>
         <div className="mt-2">
           <StatusPills player={player} save={save} onClub={onClub} />
@@ -118,40 +134,67 @@ export function PlayerView({
         ))}
       </dl>
       <PlayerCompare save={save} index={index} />
-      <div className="grid gap-4 px-4 pb-6 sm:grid-cols-2">
-        {GROUPS.filter((group) => group.id !== "goalkeeping" || isGk).map((group) => (
-          <section key={group.id}>
-            <h3 className="mb-1 text-xs text-faint">{group.label}</h3>
-            <ul className="divide-y divide-line border-y border-line">
-              {ATTRS.filter((attr) => attr.group === group.id).map((attr) => (
-                <li key={attr.key} className="flex items-center justify-between py-1 text-sm">
-                  <span className="text-muted">{attr.label}</span>
-                  <Stat value={attrOf(save, index, attr.key)} kind="attr" />
-                </li>
-              ))}
-            </ul>
-          </section>
-        ))}
+      <div className="px-4 pb-6">
+        {ranks.size > 0 ? <AttrRankKey /> : null}
+        <div className="grid gap-4 sm:grid-cols-2">
+          {GROUPS.filter((group) => group.id !== "goalkeeping" || isGk).map((group) => (
+            <section key={group.id}>
+              <h3 className="mb-1 text-xs text-faint">{group.label}</h3>
+              <ul className="divide-y divide-line border-y border-line">
+                {ATTRS.filter((attr) => attr.group === group.id).map((attr) => {
+                  const rank = ranks.get(attr.key);
+                  return (
+                    <li
+                      key={attr.key}
+                      title={attrRankTitle(rank)}
+                      className={`flex items-center justify-between py-1 text-sm ${rank ? "px-2" : ""} ${attrRankRow(rank)}`}
+                    >
+                      <span className={attrRankLabel(rank)}>{attr.label}</span>
+                      <Stat value={attrOf(save, index, attr.key)} kind="attr" />
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
+        </div>
       </div>
     </article>
   );
 }
 
+function AttrRankKey() {
+  return (
+    <p className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-faint">
+      <span className="inline-flex items-center gap-1.5">
+        <i className="h-3 w-0.5 bg-accent" aria-hidden="true" />
+        0.10 and up
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <i className="h-3 w-0.5 bg-secondary" aria-hidden="true" />
+        0.05–0.10
+      </span>
+    </p>
+  );
+}
+
 function ClubLink({ name, onClick }: { name: string; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className="truncate underline decoration-line underline-offset-2 hover:text-accent">
+    <button
+      type="button"
+      onClick={onClick}
+      className="truncate underline decoration-line underline-offset-2 hover:text-accent"
+    >
       {name}
     </button>
   );
 }
 
-function Ability({ label, value }: { label: string; value: number }) {
+function Metric({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <p>
+    <p className="min-w-0">
       <span className="block text-xs text-faint">{label}</span>
-      <span className="text-2xl font-medium">
-        <Stat value={value} kind="ability" />
-      </span>
+      <span className="block truncate font-mono text-base font-medium leading-tight @min-[32rem]:text-xl">{children}</span>
     </p>
   );
 }

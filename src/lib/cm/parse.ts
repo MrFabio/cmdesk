@@ -5,9 +5,12 @@ import {
   ATTR_INDEX,
   FLAG,
   type CompRec,
+  type HumanPick,
   type ParsedSave,
   type PlayerRec,
   type ProgressUpdate,
+  type TacticRec,
+  type TacticSlot,
 } from "./types.ts";
 
 const BLOCK_HEADER = 268;
@@ -38,6 +41,9 @@ const NEEDED = [
   "general.dat",
   "staff_history.dat",
   "index.dat",
+  "tactics.dat",
+  "human_manager.dat",
+  "injury.dat",
 ];
 
 export function parseSave(
@@ -111,11 +117,14 @@ export function parseSave(
     : [];
 
   const clubRows = readClubs(must(byName, "club.dat"), counts.get("club.dat"), warnings);
+  const tactics = byName.has("tactics.dat") ? readTactics(must(byName, "tactics.dat"), warnings) : [];
+  const humanManager = byName.has("human_manager.dat") ? must(byName, "human_manager.dat") : null;
   report(46, "Reading staff and contracts");
   const staff = must(byName, "staff.dat");
   const staffCount = recordCount(staff, STAFF, counts.get("staff.dat"), "staff.dat", warnings);
   const playersBin = must(byName, "player.dat");
   const playerCount = recordCount(playersBin, PLAYER, counts.get("player.dat"), "player.dat", warnings);
+  const conditions = readConditions(byName.get("injury.dat"), staffCount);
 
   const contracts = byName.has("contract.dat")
     ? readContracts(must(byName, "contract.dat"), warnings)
@@ -246,6 +255,7 @@ export function parseSave(
       loanFromClubId: loanFrom,
       squadNo: playersBin[pAt + 4] ?? 0,
       morale: playersBin[pAt + 69] ?? 0,
+      condition: conditions?.[i] ?? -1,
       dobLabel: dob ? formatDate(dob) : "",
       joinedLabel: joined ? formatDate(joined) : "",
       expiresLabel: expires ? formatDate(expires) : "",
@@ -282,6 +292,8 @@ export function parseSave(
     nations,
     comps,
     clubs,
+    tactics,
+    humanManager,
     players,
     attrs: trimmed,
     warnings,
@@ -399,6 +411,130 @@ function readNations(block: Uint8Array, indexed: number | undefined, warnings: s
   return nations;
 }
 
+const TACTIC = 6371;
+/**
+ * Overview circles on a 3.9.68 `tactics.dat` (stride 6371).
+ * Eleven little-endian words. A word is one row bit
+ * (GK 0x1, SW 0x2, D 0x4, DM 0x8, M 0x10, AM 0x20, ST 0x40)
+ * and one side bit (L 0x80, CL 0x100, C 0x200, CR 0x400, R 0x800).
+ * The goalkeeper may omit the side. The int32 at the start of a record
+ * is not a unique id — club `tacticId` is the record index.
+ * Checked on 352_v1, 442_v1 and 343_default. That career's match squads
+ * were all -1, so names were not sitting on these slots in the file.
+ */
+const TACTIC_SLOTS = 338;
+const ROW_BIT = [0x1, 0x2, 0x4, 0x8, 0x10, 0x20, 0x40];
+const COL_BIT = [0x80, 0x100, 0x200, 0x400, 0x800];
+
+function decodeSlot(word: number): TacticSlot | null {
+  let row = -1;
+  let rows = 0;
+  for (let i = 0; i < ROW_BIT.length; i += 1) {
+    if (word & ROW_BIT[i]!) {
+      row = i;
+      rows += 1;
+    }
+  }
+  if (rows !== 1) return null;
+  let col = -1;
+  let cols = 0;
+  for (let i = 0; i < COL_BIT.length; i += 1) {
+    if (word & COL_BIT[i]!) {
+      col = i;
+      cols += 1;
+    }
+  }
+  if (word & ~0xfff) return null;
+  if (row === 0) {
+    if (cols > 1) return null;
+    return { row, col: cols === 1 ? col : 2 };
+  }
+  if (cols !== 1) return null;
+  return { row, col };
+}
+
+function readTactics(block: Uint8Array, warnings: string[]): TacticRec[] {
+  const count = Math.floor(block.length / TACTIC);
+  if (count <= 0) {
+    warnings.push("tactics.dat does not contain a tactic record.");
+    return [];
+  }
+  const view = viewOf(block);
+  const tactics: TacticRec[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const at = i * TACTIC;
+    const name = cstr(block, at + 4, 51);
+    const slots: TacticSlot[] = [];
+    let ok = /[A-Za-z0-9]/.test(name);
+    for (let slot = 0; slot < 11 && ok; slot += 1) {
+      const decoded = decodeSlot(view.getUint16(at + TACTIC_SLOTS + slot * 2, true));
+      if (!decoded) ok = false;
+      else slots.push(decoded);
+    }
+    const circles = new Set(slots.map((slot) => `${slot.row}:${slot.col}`));
+    const keepers = slots.filter((slot) => slot.row === 0).length;
+    tactics.push({
+      id: i,
+      name,
+      slots: ok && circles.size === 11 && keepers === 1 ? slots : null,
+    });
+  }
+  return tactics;
+}
+
+/**
+ * `human_manager.dat` on a 3.9.68 career. Records are 19072 bytes while the
+ * name at +4 still looks like a tactic name. The last 128 bytes are 16 pairs
+ * of (staff id, overview word): the eleven, then five bench slots whose word
+ * is -1. The three ints at +18924 were 65, 8, 1395233 on every record of the
+ * career this was checked against. Club `TacticSelected` stayed -1; the
+ * tactic name in the record is the one that was set.
+ */
+const HUMAN_STRIDE = 19072;
+const HUMAN_LINEUP = HUMAN_STRIDE - 16 * 8;
+
+/** The picked eleven whose players are all in `squadIds`. Other records are skipped. */
+export function readHumanPick(block: Uint8Array, squadIds: ReadonlySet<number>): HumanPick | null {
+  const view = viewOf(block);
+  let found: HumanPick | null = null;
+  const count = Math.floor(block.length / HUMAN_STRIDE);
+  for (let record = 0; record < count; record += 1) {
+    const at = record * HUMAN_STRIDE;
+    const name = cstr(block, at + 4, 51);
+    if (!/[A-Za-z0-9]/.test(name)) break;
+    if (i32(view, at + 18924) !== 65 || i32(view, at + 18928) !== 8 || i32(view, at + 18932) !== 1_395_233) {
+      continue;
+    }
+    const firstId = i32(view, at + HUMAN_LINEUP);
+    if (!squadIds.has(firstId)) continue;
+    const pitch: HumanPick["pitch"] = [];
+    let ok = true;
+    for (let slot = 0; slot < 11; slot += 1) {
+      const pair = at + HUMAN_LINEUP + slot * 8;
+      const staffId = i32(view, pair);
+      const decoded = decodeSlot(i32(view, pair + 4));
+      if (staffId <= 0 || !decoded || !squadIds.has(staffId)) {
+        ok = false;
+        break;
+      }
+      pitch.push({ staffId, slot: decoded });
+    }
+    if (!ok) continue;
+    const circles = new Set(pitch.map((entry) => `${entry.slot.row}:${entry.slot.col}`));
+    const keepers = pitch.filter((entry) => entry.slot.row === 0).length;
+    if (circles.size !== 11 || keepers !== 1) continue;
+    const bench: number[] = [];
+    for (let slot = 11; slot < 16; slot += 1) {
+      const pair = at + HUMAN_LINEUP + slot * 8;
+      const staffId = i32(view, pair);
+      if (staffId <= 0 || i32(view, pair + 4) !== -1) break;
+      if (squadIds.has(staffId)) bench.push(staffId);
+    }
+    found = { tacticName: name, pitch, bench };
+  }
+  return found;
+}
+
 function readComps(block: Uint8Array, indexed: number | undefined, warnings: string[]): CompRec[] {
   const count = recordCount(block, COMP, indexed, "club_comp.dat", warnings);
   const view = viewOf(block);
@@ -421,6 +557,10 @@ function readClubs(block: Uint8Array, indexed: number | undefined, warnings: str
   const clubs = [];
   for (let i = 0; i < count; i += 1) {
     const at = i * CLUB;
+    const matchSquad: number[] = [];
+    for (let slot = 0; slot < 20; slot += 1) matchSquad.push(i32(view, at + 480 + slot * 4));
+    const trainingTactics: number[] = [];
+    for (let slot = 0; slot < 4; slot += 1) trainingTactics.push(i32(view, at + 560 + slot * 4));
     clubs.push({
       id: i,
       name: cstr(block, at + 4, 51),
@@ -430,6 +570,9 @@ function readClubs(block: Uint8Array, indexed: number | undefined, warnings: str
       reputation: u16(view, at + 128),
       cash: i32(view, at + 101),
       manager: "",
+      matchSquad,
+      trainingTactics,
+      tacticId: i32(view, at + 576),
     });
   }
   const readable = clubs.filter((club) => /[A-Za-z]/.test(club.name)).length;
@@ -503,6 +646,22 @@ function readContracts(block: Uint8Array, warnings: string[]): Contract[] {
 }
 
 type Hist = { year: number; clubId: number; onLoan: number };
+
+const FITNESS = 31;
+
+/** One fitness row per staff index. Condition is the two words at +8 and +10, times each other, over 1,000,000. */
+function readConditions(block: Uint8Array | undefined, staffCount: number): Int16Array | null {
+  if (!block || block.length < staffCount * FITNESS) return null;
+  const view = viewOf(block);
+  const out = new Int16Array(staffCount);
+  for (let i = 0; i < staffCount; i += 1) {
+    const at = i * FITNESS;
+    const fitness = view.getUint16(at + 8, true);
+    const match = view.getUint16(at + 10, true);
+    out[i] = Math.floor((fitness * match) / 1_000_000);
+  }
+  return out;
+}
 
 function readHistory(block: Uint8Array, indexed: number | undefined, warnings: string[]) {
   const count = recordCount(block, HISTORY, indexed, "staff_history.dat", warnings);

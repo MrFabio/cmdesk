@@ -1,4 +1,4 @@
-import { abilityBand, bandOf } from "@/lib/cm/labels";
+import { abilityBand, bandOf, moraleLevel } from "@/lib/cm/labels";
 import { useSettings } from "@/lib/cm/settings";
 
 export function Stat({
@@ -17,4 +17,14 @@ export function Stat({
     return <span className="font-mono text-faint">{value}</span>;
   }
   return <span className={`font-mono attr-b${band}`}>{value}</span>;
+}
+
+export function MoraleText({ value, compact = false }: { value: number; compact?: boolean }) {
+  const level = moraleLevel(value);
+  const tone = level.band ? `attr-b${level.band}` : "text-faint";
+  return (
+    <span className={tone} title={compact && level.short !== level.label ? level.label : undefined}>
+      {compact ? level.short : level.label}
+    </span>
+  );
 }

@@ -3,18 +3,12 @@ import { FLAG, type ParsedSave, type PlayerRec } from "./types.ts";
 /**
  * Units of each currency for £1 as stored in the save.
  * Euro uses £1 = €3.8835 (display multiplier for this desk).
- * Other currencies are approximate crosses for display only.
+ * Dollar is an approximate cross for display only.
  */
 export const CURRENCIES = [
   { id: "eur", label: "Euro", symbol: "€", perPound: 3.8835 },
   { id: "gbp", label: "Pound", symbol: "£", perPound: 1 },
   { id: "usd", label: "Dollar", symbol: "$", perPound: 1.5 },
-  { id: "chf", label: "Swiss franc", symbol: "CHF", perPound: 1.5 },
-  { id: "sek", label: "Swedish kr", symbol: "kr", perPound: 15 },
-  { id: "nok", label: "Norwegian kr", symbol: "kr", perPound: 13 },
-  { id: "dkk", label: "Danish kr", symbol: "kr", perPound: 12 },
-  { id: "pln", label: "Zloty", symbol: "zł", perPound: 6 },
-  { id: "brl", label: "Real", symbol: "R$", perPound: 5 },
 ] as const;
 
 export type CurrencyId = (typeof CURRENCIES)[number]["id"];
@@ -30,6 +24,33 @@ export type WagePeriod = (typeof WAGE_PERIODS)[number]["id"];
 
 export function currencyOf(id: CurrencyId) {
   return CURRENCIES.find((item) => item.id === id) ?? CURRENCIES[0];
+}
+
+export type MoraleLevel = {
+  label: string;
+  short: string;
+  band: 1 | 2 | 3 | 4 | 5 | 6 | null;
+};
+
+/** Squad-screen morale words, from the byte at player +69. */
+export function moraleLevel(value: number): MoraleLevel {
+  if (!Number.isFinite(value) || value <= 0) return { label: "–", short: "–", band: null };
+  if (value < 4) return { label: "Very Low", short: "V.Low", band: 1 };
+  if (value < 8) return { label: "Low", short: "Low", band: 2 };
+  if (value < 12) return { label: "Ok", short: "Ok", band: 3 };
+  if (value < 15) return { label: "Good", short: "Good", band: 4 };
+  if (value < 18) return { label: "Very Good", short: "V.Good", band: 5 };
+  return { label: "Superb", short: "Superb", band: 6 };
+}
+
+export function moraleLabel(value: number): string {
+  return moraleLevel(value).label;
+}
+
+/** Fitness × match fitness, as the percentage the squad screen prints. */
+export function conditionText(percent: number): string {
+  if (!Number.isFinite(percent) || percent < 0) return "–";
+  return `${Math.round(percent)}%`;
 }
 
 export function periodOf(id: WagePeriod) {

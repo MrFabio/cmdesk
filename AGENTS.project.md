@@ -8,7 +8,7 @@ Do not vendor unlicensed CM sources. Do not ship official data, club logos, or p
 
 ## Product scope
 
-In: open a local file, fictional sample career, club squad, free agents, player page, search, column sort, saved searches, settings (theme, attribute colours, currency, wage period).
+In: open a local file, fictional sample career, club squad, free agents, player page, search, column sort, saved searches, settings (theme, attribute colours, currency, wage period), club set-piece boards (penalties, free kicks, corners, throw-ins).
 
 Out, until the user asks: editing the save, league tables, tactics, match stats, career-history UI, opening a save from a URL, accounts, uploads.
 
@@ -103,6 +103,8 @@ Squad status uses the odd bit tests in `squadStatusLabel` (`& 240 == 0` uncertai
 - Sort is one desk-wide sort, not part of Filters. Default `pos` / asc. Clicking a column flips direction; a new column uses `defaultSortDir` (name/pos/age/nat/club/expires/status asc; ca/pa/wage/value/morale desc). Missing contract dates stay last. If “remember column sort” is on, write through to settings. On hydration, apply the saved sort only if the desk is still pos/asc. If PA is hidden and the sort is PA, show CA desc.
 - Saved searches persist separately so Reset settings does not delete them. Defaults in `DEFAULT_SEARCHES` are not stored and cannot be deleted.
 - Names: common (default) or full. Density, columns (value and morale off by default), hide goalkeeping for outfielders, mute attributes under 0/8/11/15 (0 = off; does not mute CA/PA).
+- On the player page, a marked attribute row uses the position-rating fit. The theme accent is weight at least 0.10. A second colour is weight from 0.05 up to 0.10. Several positions take the stronger mark. Side picks central vs wide. Sweeper uses the central-defender weights, a wide attacking mid uses the wide-mid weights, and every forward uses the central-forward weights. Feet are not marked. Finishing (0.024) and One on ones (no weight) stay unmarked.
+- Club set-piece boards rank the outfield squad by the attribute the game uses: Penalties, Free kicks, Corners, Throw ins. Penalties and throw-ins are ordered by the in-match value, so two profiles of 20 can split, and a second number shows when that value is above 20. Pure goalkeepers are omitted. Feet are shown for free kicks and corners.
 
 ## Sample career
 

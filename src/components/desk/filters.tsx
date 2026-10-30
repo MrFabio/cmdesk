@@ -6,7 +6,7 @@ import { currencyOf } from "@/lib/cm/labels";
 import { DEFAULT_SEARCHES, sameSearch, useSearches } from "@/lib/cm/searches";
 import { useSettings } from "@/lib/cm/settings";
 import type { ParsedSave } from "@/lib/cm/types";
-import { chip, chipOn, control } from "./ui";
+import { chip, chipClass, chipOn, control } from "./ui";
 
 const SIDES = [
   { bit: 1, label: "R" },
@@ -78,7 +78,7 @@ export function FilterBar({
               key={search.id}
               type="button"
               aria-pressed={sameSearch(filters, query, search)}
-              className={`${chip} ${sameSearch(filters, query, search) ? chipOn : ""}`}
+              className={chipClass(sameSearch(filters, query, search))}
               onClick={() => onApply(search.filters, search.query)}
             >
               {search.name}
@@ -123,7 +123,7 @@ export function FilterBar({
                 placeholder="Name this search"
                 onChange={(event) => setDraft(event.target.value)}
               />
-              <button type="submit" className={`${chip} ${chipOn}`} disabled={!draft.trim()}>
+              <button type="submit" className={chipOn} disabled={!draft.trim()}>
                 Save
               </button>
               <button type="button" className={chip} onClick={() => setNaming(false)}>
@@ -221,7 +221,7 @@ export function FilterBar({
 
 function Toggle({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) {
   return (
-    <button type="button" aria-pressed={on} onClick={onClick} className={`${chip} ${on ? chipOn : ""}`}>
+    <button type="button" aria-pressed={on} onClick={onClick} className={chipClass(on)}>
       {label}
     </button>
   );

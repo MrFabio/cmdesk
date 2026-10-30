@@ -101,6 +101,28 @@ export type CompRec = {
   nationId: number;
 };
 
+/** One overview circle. Row 0 is the goalkeeper, row 6 the attack. Column 0 is left. */
+export type TacticSlot = { row: number; col: number };
+
+export type TacticRec = {
+  /** Record index in `tactics.dat`. `ClubRec.tacticId` uses this index. */
+  id: number;
+  name: string;
+  /** Eleven overview circles, or null when those words do not decode. */
+  slots: TacticSlot[] | null;
+};
+
+/**
+ * A team picked in `human_manager.dat`. The club record's match squad can
+ * stay empty after friendlies; this is the eleven with a position on each player.
+ */
+export type HumanPick = {
+  tacticName: string;
+  pitch: { staffId: number; slot: TacticSlot }[];
+  /** Staff ids after the eleven. A value below 0 is an empty bench slot. */
+  bench: number[];
+};
+
 export type ClubRec = {
   id: number;
   name: string;
@@ -110,6 +132,12 @@ export type ClubRec = {
   reputation: number;
   cash: number;
   manager: string;
+  /** Twenty staff ids. A value below 0 is an empty slot. */
+  matchSquad: number[];
+  /** Four training tactic ids. Stored only. */
+  trainingTactics: number[];
+  /** Index into `tactics`. Below 0 means no tactic selected. */
+  tacticId: number;
 };
 
 export type PlayerRec = {
@@ -134,6 +162,8 @@ export type PlayerRec = {
   loanFromClubId: number;
   squadNo: number;
   morale: number;
+  /** Match condition, 0–100. Below 0 when the save has no fitness table. */
+  condition: number;
   dobLabel: string;
   joinedLabel: string;
   expiresLabel: string;
@@ -161,6 +191,12 @@ export type ParsedSave = {
   nations: NationRec[];
   comps: CompRec[];
   clubs: ClubRec[];
+  tactics: TacticRec[];
+  /**
+   * Raw `human_manager.dat`. The picked eleven is decoded for the club on
+   * screen, not for every club in the file. Null when the block is absent.
+   */
+  humanManager: Uint8Array | null;
   players: PlayerRec[];
   /** Int8 attribute values, row-major, ATTRS.length per player. -1 unknown. */
   attrs: Int8Array;

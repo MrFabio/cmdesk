@@ -26,6 +26,7 @@ function player(patch: Partial<PlayerRec> & Pick<PlayerRec, "sortName">): Player
     loanFromClubId: -1,
     squadNo: 0,
     morale: 0,
+    condition: -1,
     dobLabel: "",
     joinedLabel: "",
     expiresLabel: "",

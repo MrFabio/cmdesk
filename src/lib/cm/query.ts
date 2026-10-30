@@ -65,7 +65,7 @@ export function emptyFilters(): Filters {
 }
 
 export function defaultSortDir(key: SortKey): SortDir {
-  if (key === "ca" || key === "pa" || key === "wage" || key === "value" || key === "morale") return "desc";
+  if (key === "ca" || key === "pa" || key === "wage" || key === "value" || key === "morale" || key === "condition") return "desc";
   return "asc";
 }
 
@@ -185,10 +185,11 @@ export function searchPlayers(
 export function sortHits(hits: Hit[], key: SortKey, dir: SortDir, save: ParsedSave, lookups: Lookups): Hit[] {
   const list = hits.slice();
   list.sort((a, b) => {
-    if (key === "expires") {
-      const placed = missingLast(a.player.expiresOrd, b.player.expiresOrd);
+    if (key === "expires" || key === "condition") {
+      const raw = key === "expires" ? [a.player.expiresOrd, b.player.expiresOrd] : [a.player.condition, b.player.condition];
+      const placed = missingLast(raw[0], raw[1]);
       if (placed !== 0) return placed;
-      const diff = a.player.expiresOrd - b.player.expiresOrd;
+      const diff = raw[0] - raw[1];
       if (diff !== 0) return dir === "asc" ? diff : -diff;
     } else {
       const diff = compareAsc(a, b, key, save, lookups);
@@ -230,6 +231,8 @@ function compareAsc(a: Hit, b: Hit, key: SortKey, save: ParsedSave, lookups: Loo
       return left.value - right.value;
     case "morale":
       return left.morale - right.morale;
+    case "condition":
+      return left.condition - right.condition;
     case "status":
       return statusText(left, save).localeCompare(statusText(right, save));
     default:

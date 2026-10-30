@@ -3,7 +3,7 @@ import { CURRENCIES, WAGE_PERIODS, rateNote } from "@/lib/cm/labels";
 import { COLUMN_DEFS, MUTE_STOPS, PACKS, THEMES, useSettings } from "@/lib/cm/settings";
 import { useDesk } from "@/lib/cm/store";
 import { Stat } from "./stat";
-import { button, chip, chipOn } from "./ui";
+import { button, chipClass } from "./ui";
 
 export function SettingsView({ onClose }: { onClose: () => void }) {
   const pack = useSettings((state) => state.pack);
@@ -111,7 +111,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
                 key={item.id}
                 type="button"
                 aria-pressed={currency === item.id}
-                className={`${chip} ${currency === item.id ? chipOn : ""}`}
+                className={chipClass(currency === item.id)}
                 onClick={() => setCurrency(item.id)}
               >
                 {item.label}
@@ -126,7 +126,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
                 key={item.id}
                 type="button"
                 aria-pressed={wagePeriod === item.id}
-                className={`${chip} ${wagePeriod === item.id ? chipOn : ""}`}
+                className={chipClass(wagePeriod === item.id)}
                 onClick={() => setWagePeriod(item.id)}
               >
                 {item.label}
@@ -139,13 +139,13 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
         <section>
           <h3 className="text-sm font-medium">Display</h3>
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" aria-pressed={showPa} className={`${chip} ${showPa ? chipOn : ""}`} onClick={() => setShowPa(!showPa)}>
+            <button type="button" aria-pressed={showPa} className={chipClass(showPa)} onClick={() => setShowPa(!showPa)}>
               Show potential
             </button>
             <button
               type="button"
               aria-pressed={nameStyle === "common"}
-              className={`${chip} ${nameStyle === "common" ? chipOn : ""}`}
+              className={chipClass(nameStyle === "common")}
               onClick={() => setNameStyle("common")}
             >
               Common name
@@ -153,7 +153,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
             <button
               type="button"
               aria-pressed={nameStyle === "full"}
-              className={`${chip} ${nameStyle === "full" ? chipOn : ""}`}
+              className={chipClass(nameStyle === "full")}
               onClick={() => setNameStyle("full")}
             >
               Full name
@@ -161,7 +161,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
             <button
               type="button"
               aria-pressed={density === "comfortable"}
-              className={`${chip} ${density === "comfortable" ? chipOn : ""}`}
+              className={chipClass(density === "comfortable")}
               onClick={() => setDensity("comfortable")}
             >
               Comfortable rows
@@ -169,7 +169,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
             <button
               type="button"
               aria-pressed={density === "compact"}
-              className={`${chip} ${density === "compact" ? chipOn : ""}`}
+              className={chipClass(density === "compact")}
               onClick={() => setDensity("compact")}
             >
               Compact rows
@@ -177,7 +177,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
             <button
               type="button"
               aria-pressed={hideGkOutfield}
-              className={`${chip} ${hideGkOutfield ? chipOn : ""}`}
+              className={chipClass(hideGkOutfield)}
               onClick={() => setHideGkOutfield(!hideGkOutfield)}
             >
               Hide goalkeeping for outfielders
@@ -185,7 +185,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
             <button
               type="button"
               aria-pressed={rememberSort}
-              className={`${chip} ${rememberSort ? chipOn : ""}`}
+              className={chipClass(rememberSort)}
               onClick={() => {
                 const next = !rememberSort;
                 setRememberSort(next);
@@ -206,7 +206,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
                   key={stop}
                   type="button"
                   aria-pressed={muteBelow === stop}
-                  className={`${chip} ${muteBelow === stop ? chipOn : ""}`}
+                  className={chipClass(muteBelow === stop)}
                   onClick={() => setMuteBelow(stop)}
                 >
                   {stop === 0 ? "Off" : String(stop)}

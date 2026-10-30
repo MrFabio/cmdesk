@@ -2,6 +2,20 @@ import { create } from "zustand";
 import { emptyFilters, type Filters, type SortDir, type SortKey } from "./query.ts";
 import type { ParsedSave, ProgressUpdate } from "./types.ts";
 
+type ClubMark = { id: number; name: string };
+
+/** The club marked as yours, when the next file still contains that same club. */
+export function keptHumanClub(
+  previous: { humanClubId: number; clubs: ClubMark[] } | null,
+  next: { clubs: ClubMark[] },
+): number | null {
+  if (!previous || previous.humanClubId < 0) return null;
+  const picked = previous.clubs.find((club) => club.id === previous.humanClubId);
+  if (!picked) return null;
+  const again = next.clubs.find((club) => club.id === picked.id && club.name === picked.name);
+  return again ? again.id : null;
+}
+
 export type Place = { kind: "club"; clubId: number } | { kind: "free" } | { kind: "search" };
 
 type DeskState = {
@@ -51,22 +65,22 @@ export const useDesk = create<DeskState>((set) => ({
   sortDir: "asc",
   highlight: 0,
   openSave: (save) =>
-    set({
-      save,
-      busy: null,
-      error: null,
-      place:
-        save.humanClubId >= 0
-          ? { kind: "club", clubId: save.humanClubId }
-          : save.clubs[0]
-            ? { kind: "club", clubId: save.clubs[0].id }
-            : { kind: "free" },
-      playerIndex: null,
-      settingsOpen: false,
-      treeOpen: false,
-      query: "",
-      filters: emptyFilters(),
-      highlight: 0,
+    set((state) => {
+      const kept = keptHumanClub(state.save, save);
+      const next = kept == null ? save : { ...save, humanClubId: kept };
+      const clubId = next.humanClubId >= 0 ? next.humanClubId : (next.clubs[0]?.id ?? -1);
+      return {
+        save: next,
+        busy: null,
+        error: null,
+        place: clubId >= 0 ? { kind: "club" as const, clubId } : { kind: "free" as const },
+        playerIndex: null,
+        settingsOpen: false,
+        treeOpen: false,
+        query: "",
+        filters: emptyFilters(),
+        highlight: 0,
+      };
     }),
   setBusy: (busy) => set({ busy }),
   setError: (error) => set({ error, busy: null }),
