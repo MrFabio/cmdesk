@@ -25,6 +25,7 @@ export type ThemeId = (typeof THEMES)[number]["id"];
 export const COLUMN_DEFS = [
   { id: "name", label: "Name", locked: true },
   { id: "pos", label: "Position", locked: false },
+  { id: "rating", label: "Rating", locked: false },
   { id: "age", label: "Age", locked: false },
   { id: "nat", label: "Nation", locked: false },
   { id: "morale", label: "Morale", locked: false },
@@ -47,8 +48,8 @@ function defaultColumns(): Record<ColumnId, boolean> {
   return Object.fromEntries(COLUMN_DEFS.map((column) => [column.id, true])) as Record<ColumnId, boolean>;
 }
 
-/** Bumped when the default column set should replace a saved one. */
-const COLUMNS_REV = 1;
+/** Bumped when a new column should turn on without wiping the rest. */
+const COLUMNS_REV = 2;
 
 type Persisted = {
   theme: ThemeId;
@@ -198,9 +199,10 @@ export const useSettings = create<Settings>()(
       merge: (persisted, current) => {
         const saved = (persisted ?? {}) as Partial<Persisted>;
         const columns = { ...defaultColumns(), ...saved.columns, name: true };
-        if ((saved.columnsRev ?? 0) < COLUMNS_REV) {
+        if ((saved.columnsRev ?? 0) < 1) {
           for (const column of COLUMN_DEFS) columns[column.id] = true;
         }
+        if ((saved.columnsRev ?? 0) < COLUMNS_REV) columns.rating = true;
         return {
           ...current,
           ...saved,

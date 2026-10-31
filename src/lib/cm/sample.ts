@@ -49,6 +49,8 @@ type Person = {
     pa: number;
     morale: number;
     condition?: number;
+    /** Days until he is fit. Omit when he is not injured. */
+    outFor?: number;
     roles: Partial<Record<Role, number>>;
     attrs: Record<string, number>;
     left: number;
@@ -341,6 +343,7 @@ function story(): Person[] {
       left: 20,
       right: 9,
       reps: [7000, 6800, 5000],
+      outFor: 16,
       contracts: [{ club: 1, status: 1, bosman: 0, arranged: -1, release: 5_000_000 }],
     }),
     player({
@@ -468,6 +471,25 @@ function story(): Person[] {
       reps: [4000, 3900, 2200],
       contracts: [{ club: 1, status: 0, arranged: 2, release: 1_500_000 }],
     }),
+    player({
+      first: "Lars",
+      second: "Holm",
+      nation: 1,
+      club: -1,
+      job: 16,
+      wage: 0,
+      value: 0,
+      dob: [1968, 3, 14],
+      squad: 0,
+      ca: 140,
+      pa: 150,
+      morale: 0,
+      roles: { d: 20, c: 20 },
+      attrs: attrsFrom(140, roll, { tackling: 2 }),
+      left: 12,
+      right: 18,
+      reps: [5000, 4000, 3000],
+    }),
   ];
 
   const used = new Set(people.map((person) => `${person.first} ${person.second}`));
@@ -525,6 +547,7 @@ function player(input: Omit<Person, "job" | "contracts" | "player"> & {
   pa: number;
   morale: number;
   condition?: number;
+  outFor?: number;
   roles: Partial<Record<Role, number>>;
   attrs: Record<string, number>;
   left: number;
@@ -532,6 +555,8 @@ function player(input: Omit<Person, "job" | "contracts" | "player"> & {
   reps: [number, number, number];
   contracts?: ContractIn[];
   history?: Person["history"];
+  /** Club job byte. 11 is a player; 16 is retired. */
+  job?: number;
 }): Person {
   return {
     first: input.first,
@@ -539,7 +564,7 @@ function player(input: Omit<Person, "job" | "contracts" | "player"> & {
     common: input.common,
     nation: input.nation,
     club: input.club,
-    job: 11,
+    job: input.job ?? 11,
     wage: input.wage,
     value: input.value,
     dob: input.dob,
@@ -555,6 +580,7 @@ function player(input: Omit<Person, "job" | "contracts" | "player"> & {
       pa: input.pa,
       morale: input.morale,
       condition: input.condition,
+      outFor: input.outFor,
       roles: input.roles,
       attrs: input.attrs,
       left: input.left,
@@ -752,15 +778,30 @@ export function buildSample(compressed = true): ArrayBuffer {
   writeDate(generalView, 3944, [2001, 10, 15]);
 
   const FITNESS = 31;
-  const injuryBytes = new Uint8Array(people.length * FITNESS);
-  const injuryView = new DataView(injuryBytes.buffer);
+  const ENTRY = 48;
+  const injured: number[] = [];
+  const injuryRows = new Uint8Array(people.length * FITNESS);
+  const injuryView = new DataView(injuryRows.buffer);
   people.forEach((person, index) => {
     const at = index * FITNESS;
     writeDate(injuryView, at, [2001, 10, 15]);
     const percent = person.player?.condition ?? (person.player ? 80 + (index % 21) : 100);
     injuryView.setUint16(at + 8, 10_000, true);
     injuryView.setUint16(at + 10, percent * 100, true);
+    injuryView.setInt32(at + 0x0e, -1, true);
+    if ((person.player?.outFor ?? 0) > 0) injured.push(index);
   });
+  const table = new Uint8Array(4 + injured.length * ENTRY);
+  const tableView = new DataView(table.buffer);
+  tableView.setInt32(0, injured.length, true);
+  injured.forEach((staffIndex, index) => {
+    const days = people[staffIndex]?.player?.outFor ?? 0;
+    injuryView.setInt32(staffIndex * FITNESS + 0x0e, index, true);
+    tableView.setInt16(4 + index * ENTRY + 0x2c, days, true);
+  });
+  const injuryBytes = new Uint8Array(injuryRows.length + table.length);
+  injuryBytes.set(injuryRows);
+  injuryBytes.set(table, injuryRows.length);
 
   const counted = [
     ["staff.dat", people.length],

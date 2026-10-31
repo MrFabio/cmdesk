@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { caDependentFloat, displayAttr, intrinsicForDisplay } from "./attr-display.ts";
-import { attrRanksFor, playedSpots, type AttrRank, type PitchSpot } from "./positions.ts";
+import { attrRanksFor, playedSpots, roleRating, type AttrRank, type PitchSpot } from "./positions.ts";
 import { rankSetPiece } from "./set-pieces.ts";
 import { ATTRS, ATTR_INDEX, type AttrKey, type ParsedSave, type PlayerRec } from "./types.ts";
 
@@ -88,10 +88,6 @@ describe("key attributes for a position", () => {
     });
   });
 
-  it("uses central-defender weights for a sweeper", () => {
-    expectRanks(2, 4, { marking: "primary", positioning: "primary" });
-  });
-
   it("uses wide-mid weights for a wide attacking mid", () => {
     expectRanks(32, 1, {
       dribbling: "primary",
@@ -112,6 +108,90 @@ describe("key attributes for a position", () => {
   });
 });
 
+function values(map: Partial<Record<AttrKey, number>> = {}) {
+  return (key: AttrKey) => map[key] ?? -1;
+}
+
+describe("position rating", () => {
+  it("weights a goalkeeper towards handling, the heaviest highlighted attribute", () => {
+    const rated = roleRating(1, 0, values({ handling: 20, agility: 10, reflexes: 10 }));
+    assert.equal(rated?.slot, "GK");
+    assert.equal(rated?.value, 15.5);
+    assert.deepEqual(rated?.attrs, ["Handling", "Agility", "Reflexes"]);
+  });
+
+  it("leaves finishing and heading out of a forward rating", () => {
+    const rated = roleRating(
+      64,
+      4,
+      values({
+        movement: 10,
+        technique: 10,
+        jumping: 10,
+        positioning: 10,
+        stamina: 10,
+        dribbling: 10,
+        passing: 10,
+        finishing: 20,
+        heading: 20,
+      }),
+    );
+    assert.equal(rated?.slot, "F");
+    assert.equal(rated?.value, 10);
+    assert.equal(rated?.attrs.includes("Finishing"), false);
+    assert.equal(rated?.attrs.includes("Heading"), false);
+    assert.equal(rated?.attrs[0], "Movement");
+  });
+
+  it("rates a right-back on the wide set and labels that side", () => {
+    const rated = roleRating(4, 1, values({ positioning: 18, technique: 14, dribbling: 12 }));
+    assert.equal(rated?.slot, "DR");
+    assert.equal(rated?.attrs[0], "Positioning");
+  });
+
+  it("scores the searched position when a player can play two", () => {
+    const attrs = values({
+      marking: 18,
+      positioning: 18,
+      movement: 8,
+      technique: 8,
+      jumping: 8,
+      dribbling: 8,
+      stamina: 8,
+      passing: 8,
+    });
+    const asDefender = roleRating(4 | 64, 4, attrs, { posMask: 4, sideMask: 0 });
+    const asForward = roleRating(4 | 64, 4, attrs, { posMask: 64, sideMask: 0 });
+    assert.equal(asDefender?.slot, "DC");
+    assert.equal(asForward?.slot, "F");
+    assert.ok((asDefender?.value ?? 0) > (asForward?.value ?? 0));
+  });
+
+  it("keeps the more defensive slot when two positions score the same", () => {
+    const rated = roleRating(4 | 16, 4, () => 10);
+    assert.equal(rated?.slot, "DC");
+    assert.equal(rated?.value, 10);
+  });
+
+  it("keeps a stronger centre-back score ahead of a weaker midfield score", () => {
+    const rated = roleRating(4 | 16, 4, (key) => (key === "marking" || key === "positioning" ? 18 : 8));
+    assert.equal(rated?.slot, "DC");
+    assert.equal(rated?.value, 17.2);
+  });
+
+  it("gives a centre-back a small lift for better stamina", () => {
+    const fresh = roleRating(4, 4, values({ marking: 14, positioning: 14, stamina: 18 }));
+    const tired = roleRating(4, 4, values({ marking: 14, positioning: 14, stamina: 8 }));
+    assert.equal(fresh?.value, 14.3);
+    assert.equal(tired?.value, 13.5);
+    assert.equal(fresh?.attrs.at(-1), "Stamina");
+  });
+
+  it("returns nothing when the player has no position", () => {
+    assert.equal(roleRating(0, 0, () => 10), null);
+  });
+});
+
 function spots(mask: number, side: number): PitchSpot[] {
   return [...playedSpots(mask, side)].sort();
 }
@@ -119,10 +199,6 @@ function spots(mask: number, side: number): PitchSpot[] {
 describe("spots on the position pitch", () => {
   it("lights only the goalkeeper spot", () => {
     assert.deepEqual(spots(1, 7), ["GK"]);
-  });
-
-  it("keeps a sweeper central when the side is wide", () => {
-    assert.deepEqual(spots(2, 1), ["SW"]);
   });
 
   it("lights a right-back and not the centre", () => {
@@ -178,6 +254,7 @@ function player(name: string, posMask: number, ca = 85): PlayerRec {
     squadNo: 0,
     morale: 10,
     condition: -1,
+    injuryDays: -1,
     dobLabel: "",
     joinedLabel: "",
     expiresLabel: "",
@@ -195,7 +272,7 @@ function player(name: string, posMask: number, ca = 85): PlayerRec {
 
 function career(
   rows: { player: PlayerRec; attrs: Partial<Record<AttrKey, number>> }[],
-): ParsedSave {
+): ParsedSave & { players: PlayerRec[] } {
   const attrs = new Int8Array(rows.length * ATTRS.length);
   attrs.fill(-1);
   rows.forEach((row, index) => {
@@ -206,7 +283,7 @@ function career(
   return {
     players: rows.map((row) => row.player),
     attrs,
-  } as ParsedSave;
+  } as ParsedSave & { players: PlayerRec[] };
 }
 
 describe("set-piece ranking", () => {

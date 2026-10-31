@@ -1,4 +1,5 @@
 import { parseSave } from "./parse.ts";
+import { transferList } from "./players.ts";
 
 type Request = { buffer: ArrayBuffer; fileName: string };
 
@@ -12,8 +13,7 @@ scope.onmessage = (event) => {
     const save = parseSave(event.data.buffer, event.data.fileName, (update) => {
       scope.postMessage({ type: "progress", pct: update.pct, label: update.label });
     });
-    const attrs = save.attrs;
-    scope.postMessage({ type: "done", save: { ...save, attrs: new Int8Array() }, attrs }, [attrs.buffer]);
+    scope.postMessage({ type: "done", save }, transferList(save));
   } catch (error) {
     scope.postMessage({
       type: "error",
@@ -21,3 +21,5 @@ scope.onmessage = (event) => {
     });
   }
 };
+
+scope.postMessage({ type: "ready" });

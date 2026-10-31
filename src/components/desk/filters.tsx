@@ -69,6 +69,7 @@ export function FilterBar({
         <Toggle on={filters.bosman} label="Bosman" onClick={() => onChange({ bosman: !filters.bosman })} />
         <Toggle on={filters.unprotected} label="Unprotected" onClick={() => onChange({ unprotected: !filters.unprotected })} />
         <Toggle on={filters.expiring} label="Expiring ≤6 months" onClick={() => onChange({ expiring: !filters.expiring })} />
+        <Toggle on={filters.hideRetired} label="Hide retired" onClick={() => onChange({ hideRetired: !filters.hideRetired })} />
       </div>
       <div className="px-3 pb-3">
         <p className="mb-1 text-xs text-faint">Searches</p>

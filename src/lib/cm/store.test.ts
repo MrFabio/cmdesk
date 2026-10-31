@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import { keptHumanClub, useDesk } from "./store.ts";
+import { before, describe, it } from "node:test";
+import { keptHumanClub, readKeptClub, useDesk } from "./store.ts";
 import type { ParsedSave } from "./types.ts";
 
 function career(humanClubId: number, clubs: [number, string][]): ParsedSave {
@@ -63,5 +63,62 @@ describe("open save over an open career", () => {
     const state = useDesk.getState();
     assert.equal(state.save?.humanClubId, 0);
     assert.deepEqual(state.place, { kind: "club", clubId: 0 });
+  });
+});
+
+describe("default club across a refresh", () => {
+  before(() => {
+    const data = new Map<string, string>();
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: (key: string) => data.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          data.set(key, value);
+        },
+        removeItem: (key: string) => {
+          data.delete(key);
+        },
+      },
+    });
+  });
+
+  it("keeps the picked club after the career is gone", () => {
+    useDesk.getState().openSave(
+      career(1, [
+        [1, "Fafe"],
+        [4, "USC Paredes"],
+      ]),
+    );
+    useDesk.getState().setHumanClub(4);
+    assert.deepEqual(readKeptClub(), { id: 4, name: "USC Paredes" });
+
+    useDesk.setState({ save: null });
+    useDesk.getState().openSave(
+      career(1, [
+        [1, "Fafe"],
+        [4, "USC Paredes"],
+      ]),
+    );
+
+    const state = useDesk.getState();
+    assert.equal(state.save?.humanClubId, 4);
+    assert.deepEqual(state.place, { kind: "club", clubId: 4 });
+  });
+
+  it("leaves the stored club in place when a file does not contain it", () => {
+    useDesk.setState({ save: null });
+    useDesk.getState().openSave(career(0, [[0, "Northbridge"]]));
+    assert.equal(useDesk.getState().save?.humanClubId, 0);
+    assert.deepEqual(readKeptClub(), { id: 4, name: "USC Paredes" });
+
+    useDesk.setState({ save: null });
+    useDesk.getState().openSave(
+      career(1, [
+        [1, "Fafe"],
+        [4, "USC Paredes"],
+      ]),
+    );
+    assert.equal(useDesk.getState().save?.humanClubId, 4);
   });
 });

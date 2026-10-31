@@ -1,3 +1,4 @@
+import { formatDate } from "./binary.ts";
 import { FLAG, type ParsedSave, type PlayerRec } from "./types.ts";
 
 /**
@@ -51,6 +52,44 @@ export function moraleLabel(value: number): string {
 export function conditionText(percent: number): string {
   if (!Number.isFinite(percent) || percent < 0) return "–";
   return `${Math.round(percent)}%`;
+}
+
+export type InjuryTone = "orange" | "red";
+
+/**
+ * Under two weeks is the orange injury (a few days, or one week).
+ * Two weeks and longer is the red injury.
+ */
+export function injuryTone(days: number): InjuryTone {
+  return days < 14 ? "orange" : "red";
+}
+
+/** The length the squad screen prints for the days still out. */
+export function injurySpan(days: number): string {
+  if (days < 7) return "a few days";
+  if (days < 14) return "1 week";
+  if (days < 21) return "2 weeks";
+  if (days < 28) return "3 weeks";
+  if (days < 42) return "1 month";
+  if (days < 56) return "6 weeks";
+  if (days < 84) return "2 months";
+  if (days < 112) return "3 months";
+  if (days < 182) return "6 months";
+  return "over 6 months";
+}
+
+export function injuryBackLabel(gameYear: number, gameDay: number, days: number): string {
+  if (gameYear < 1800 || gameDay < 0 || days < 1) return "";
+  const date = new Date(Date.UTC(gameYear, 0, 1));
+  date.setUTCDate(date.getUTCDate() + gameDay + days);
+  return formatDate(date);
+}
+
+/** Length, the exact days left, and the return date when the save has one. */
+export function injuryNote(days: number, gameYear: number, gameDay: number): string {
+  const left = days === 1 ? "1 day left" : `${days} days left`;
+  const back = injuryBackLabel(gameYear, gameDay, days);
+  return back ? `${injurySpan(days)} · ${left} · back ${back}` : `${injurySpan(days)} · ${left}`;
 }
 
 export function periodOf(id: WagePeriod) {
@@ -141,13 +180,15 @@ export type StatusKind =
   | "bosman"
   | "unprotected"
   | "arranged"
-  | "expiring";
+  | "expiring"
+  | "retired";
 
 export type StatusPart = { kind: StatusKind; label: string };
 
 export function statusParts(player: PlayerRec, save: ParsedSave): StatusPart[] {
   const flags = player.flags;
   const parts: StatusPart[] = [];
+  if (flags & FLAG.retired) parts.push({ kind: "retired", label: "Retired" });
   if (flags & FLAG.free) parts.push({ kind: "free", label: "Free" });
   if (flags & FLAG.loan) {
     const from = save.clubs.find((club) => club.id === player.loanFromClubId)?.short;

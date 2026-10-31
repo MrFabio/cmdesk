@@ -43,7 +43,7 @@ export type MatchSuggestion = {
  * is a smaller tilt. Consistency shades how often he reaches those attributes.
  * Recent ratings are not stored as an input to the next match, so they are
  * not used. Important matches is left out: the save does not say whether the
- * next game is one of those.
+ * next game is one of those. An injured player stays out of the side.
  */
 /** The shape on screen, or the club tactic, or a 4-4-2 when neither decoded. */
 export function suggestionFor(save: ParsedSave, club: ClubRec, lineup: MatchLineup, hits: Hit[]): MatchSuggestion {
@@ -54,13 +54,14 @@ export function suggestionFor(save: ParsedSave, club: ClubRec, lineup: MatchLine
 }
 
 export function suggestMatch(save: ParsedSave, hits: Hit[], slots: readonly TacticSlot[], shapeName: string): MatchSuggestion {
+  const available = hits.filter((hit) => hit.player.injuryDays < 0);
   const shape = slots.length === 11 ? slots : FALLBACK_SHAPE;
   const fallbackShape = slots.length !== 11;
-  const picked = assign(save, hits, shape);
+  const picked = assign(save, available, shape);
   const used = new Set(picked.filter((index) => index >= 0));
   const pitch = shape.map((slot, place) => {
     const at = picked[place] ?? -1;
-    const hit = at >= 0 ? hits[at] : undefined;
+    const hit = at >= 0 ? available[at] : undefined;
     if (!hit) return null;
     return ratePick(save, hit, slot);
   });
@@ -69,7 +70,7 @@ export function suggestMatch(save: ParsedSave, hits: Hit[], slots: readonly Tact
     shapeName: fallbackShape ? "4-4-2" : shapeName,
     fallbackShape,
     pitch,
-    bench: benchOf(save, hits, used),
+    bench: benchOf(save, available, used, shape),
   };
 }
 
@@ -107,18 +108,146 @@ function assign(save: ParsedSave, hits: Hit[], slots: readonly TacticSlot[]): nu
   return chosen;
 }
 
-function benchOf(save: ParsedSave, hits: Hit[], used: Set<number>): SuggestedPick[] {
-  const rest = hits
-    .map((hit, index) => ({ hit, index }))
-    .filter((row) => !used.has(row.index))
-    .map((row) => bestRole(save, row.hit))
-    .sort((a, b) => b.score - a.score || a.player.sortName.localeCompare(b.player.sortName));
-  const bench = rest.slice(0, 5);
-  const keeper = rest.find((row) => (row.player.posMask & 1) !== 0);
-  if (keeper && !bench.some((row) => (row.player.posMask & 1) !== 0)) {
-    return [...bench.slice(0, 4), keeper];
+/** Substitutes you can call on. One goalkeeper, then cover for the lines in the shape. */
+const BENCH_SIZE = 9;
+const GK_BIT = 1;
+type CoverLine = "D" | "DM" | "M" | "AM" | "F";
+const COVER_ORDER: readonly CoverLine[] = ["D", "DM", "M", "AM", "F"];
+
+function benchOf(save: ParsedSave, hits: Hit[], used: Set<number>, slots: readonly TacticSlot[]): SuggestedPick[] {
+  const spare = hits
+    .map((hit, at) => ({ hit, at }))
+    .filter((row) => !used.has(row.at));
+  const keepers = spare
+    .filter((row) => (row.hit.player.posMask & GK_BIT) !== 0)
+    .map((row) => ({ at: row.at, pick: bestRole(save, row.hit) }))
+    .sort((a, b) => byScore(a.pick, b.pick));
+  const outfield = spare.filter((row) => (row.hit.player.posMask & GK_BIT) === 0);
+
+  const bench: SuggestedPick[] = [];
+  const taken = new Set<number>();
+  const keeper = keepers[0];
+  if (keeper) {
+    bench.push(keeper.pick);
+    taken.add(keeper.at);
   }
-  return bench;
+
+  const demand = new Map<CoverLine, number>();
+  for (const slot of slots) {
+    const line = lineOfRow(slot.row);
+    if (!line) continue;
+    demand.set(line, (demand.get(line) ?? 0) + 1);
+  }
+  const lines = COVER_ORDER.filter((line) => (demand.get(line) ?? 0) > 0);
+  const ranked = new Map<CoverLine, { at: number; pick: SuggestedPick }[]>();
+  for (const line of lines) {
+    ranked.set(
+      line,
+      outfield
+        .flatMap((row) => {
+          const pick = rateOnLine(save, row.hit, line);
+          return pick ? [{ at: row.at, pick }] : [];
+        })
+        .sort((a, b) => byScore(a.pick, b.pick)),
+    );
+  }
+
+  const quotas = quotasFor(lines, demand, BENCH_SIZE - bench.length);
+  const pending = lines.map((line) => ({ line, left: quotas.get(line) ?? 0 }));
+  while (bench.length < BENCH_SIZE && pending.some((row) => row.left > 0)) {
+    const open = pending.filter((row) => row.left > 0);
+    open.sort((a, b) => available(ranked.get(a.line) ?? [], taken) - available(ranked.get(b.line) ?? [], taken));
+    const next = open[0];
+    if (!next) break;
+    const seat = (ranked.get(next.line) ?? []).find((row) => !taken.has(row.at));
+    if (!seat) {
+      next.left = 0;
+      continue;
+    }
+    bench.push(seat.pick);
+    taken.add(seat.at);
+    next.left -= 1;
+  }
+
+  const rest = outfield
+    .filter((row) => !taken.has(row.at))
+    .map((row) => bestRole(save, row.hit))
+    .sort(byScore);
+  for (const pick of rest) {
+    if (bench.length >= BENCH_SIZE) break;
+    bench.push(pick);
+  }
+  return bench.sort((a, b) => roleOrder(a.player) - roleOrder(b.player) || byScore(a, b));
+}
+
+function roleOrder(player: PlayerRec): number {
+  const bits = [GK_BIT, 4, 8, 16, 32, 64];
+  const at = bits.findIndex((bit) => (player.posMask & bit) !== 0);
+  return at < 0 ? bits.length : at;
+}
+
+function available(options: readonly { at: number }[], taken: Set<number>): number {
+  return options.filter((row) => !taken.has(row.at)).length;
+}
+
+/** One seat per line in the shape, then the rest in proportion to how many start there. */
+function quotasFor(lines: readonly CoverLine[], demand: Map<CoverLine, number>, seats: number): Map<CoverLine, number> {
+  const quotas = new Map<CoverLine, number>();
+  if (lines.length === 0 || seats <= 0) return quotas;
+  const cover = [...lines].sort((a, b) => (demand.get(b) ?? 0) - (demand.get(a) ?? 0) || a.localeCompare(b));
+  const first = cover.slice(0, seats);
+  for (const line of first) quotas.set(line, 1);
+  const left = seats - first.length;
+  if (left <= 0) return quotas;
+  const weight = first.reduce((sum, line) => sum + (demand.get(line) ?? 0), 0);
+  const parts = first.map((line) => {
+    const exact = weight > 0 ? (left * (demand.get(line) ?? 0)) / weight : left / first.length;
+    return { line, count: Math.floor(exact), frac: exact - Math.floor(exact) };
+  });
+  let used = parts.reduce((sum, part) => sum + part.count, 0);
+  const remainders = [...parts].sort(
+    (a, b) => b.frac - a.frac || (demand.get(b.line) ?? 0) - (demand.get(a.line) ?? 0) || a.line.localeCompare(b.line),
+  );
+  for (const part of remainders) {
+    if (used >= left) break;
+    part.count += 1;
+    used += 1;
+  }
+  for (const part of parts) quotas.set(part.line, (quotas.get(part.line) ?? 0) + part.count);
+  return quotas;
+}
+
+function lineOfRow(row: number): CoverLine | null {
+  if (row <= 0) return null;
+  if (row <= 2) return "D";
+  if (row === 3) return "DM";
+  if (row === 4) return "M";
+  if (row === 5) return "AM";
+  return "F";
+}
+
+function lineOfSpot(spot: PitchSpot): CoverLine | "GK" | null {
+  if (spot === "GK") return "GK";
+  if (spot.startsWith("DM")) return "DM";
+  if (spot.startsWith("AM")) return "AM";
+  if (spot.startsWith("D")) return "D";
+  if (spot.startsWith("M")) return "M";
+  if (spot.startsWith("F")) return "F";
+  return null;
+}
+
+function rateOnLine(save: ParsedSave, hit: Hit, line: CoverLine): SuggestedPick | null {
+  const spots = [...playedSpots(hit.player.posMask, hit.player.sideMask)].filter((spot) => lineOfSpot(spot) === line);
+  let best: SuggestedPick | null = null;
+  for (const spot of spots) {
+    const rated = ratePick(save, hit, slotForSpot(spot));
+    if (!best || rated.score > best.score) best = rated;
+  }
+  return best;
+}
+
+function byScore(a: SuggestedPick, b: SuggestedPick): number {
+  return b.score - a.score || a.player.sortName.localeCompare(b.player.sortName);
 }
 
 function bestRole(save: ParsedSave, hit: Hit): SuggestedPick {
@@ -131,7 +260,6 @@ function bestRole(save: ParsedSave, hit: Hit): SuggestedPick {
 function slotForSpot(spot: PitchSpot): TacticSlot {
   const table: Record<PitchSpot, TacticSlot> = {
     GK: { row: 0, col: 2 },
-    SW: { row: 1, col: 2 },
     DL: { row: 2, col: 0 },
     DC: { row: 2, col: 2 },
     DR: { row: 2, col: 4 },
@@ -191,7 +319,7 @@ function sameLine(played: Set<PitchSpot>, spots: readonly PitchSpot[]): boolean 
 }
 
 function lineOf(spot: PitchSpot): string {
-  if (spot === "GK" || spot === "SW") return spot;
+  if (spot === "GK") return spot;
   if (spot.startsWith("DM")) return "DM";
   if (spot.startsWith("AM")) return "AM";
   if (spot.startsWith("D")) return "D";

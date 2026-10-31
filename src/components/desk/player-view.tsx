@@ -1,36 +1,41 @@
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
 import { attrOf } from "@/lib/cm/parse";
-import { buildLookups, conditionText, money, personLabel, wageText } from "@/lib/cm/labels";
-import { attrRankTitle, attrRanksFor } from "@/lib/cm/positions";
+import { playerAt } from "@/lib/cm/players";
+import { bandOf, buildLookups, conditionText, injuryNote, money, personLabel, wageText } from "@/lib/cm/labels";
+import { attrRankTitle, attrRanksFor, roleRating } from "@/lib/cm/positions";
 import { ATTRS, FLAG, GROUPS, type ParsedSave } from "@/lib/cm/types";
 import { useSettings } from "@/lib/cm/settings";
 import { attrRankLabel, attrRankRow } from "./ui";
 import { PlayerCompare } from "./player-compare";
 import { PositionPitch } from "./pitch";
 import { MoraleText, Stat } from "./stat";
-import { StatusPills } from "./status-pills";
+import { InjuryTag, StatusPills } from "./status-pills";
 
 export function PlayerView({
   save,
   index,
   onClose,
   onClub,
+  focus,
 }: {
   save: ParsedSave;
   index: number;
   onClose: () => void;
   onClub: (clubId: number) => void;
+  /** Search position, so the rating matches the row that opened this player. */
+  focus?: { posMask: number; sideMask: number };
 }) {
   const showPa = useSettings((state) => state.showPa);
   const nameStyle = useSettings((state) => state.nameStyle);
   const currency = useSettings((state) => state.currency);
   const wagePeriod = useSettings((state) => state.wagePeriod);
-  const player = save.players[index];
+  const player = index >= 0 && index < save.roster.count ? playerAt(save, index) : undefined;
   if (!player) return null;
   const lookups = buildLookups(save);
   const isGk = (player.posMask & 1) !== 0;
   const ranks = attrRanksFor(player.posMask, player.sideMask);
+  const rated = roleRating(player.posMask, player.sideMask, (key) => attrOf(save, index, key), focus);
   const onLoan = (player.flags & FLAG.loan) !== 0;
   const loanFrom =
     onLoan && player.loanFromClubId >= 0
@@ -118,14 +123,24 @@ export function PlayerView({
             )}
             <Metric label="Value">{money(player.value, currency)}</Metric>
             <Metric label="Wage">{wageText(player.wage, currency, wagePeriod)}</Metric>
+            <Metric label="Rating">
+              <RoleRatingText rated={rated} />
+            </Metric>
           </div>
           <PositionPitch posMask={player.posMask} sideMask={player.sideMask} label={player.pos} />
         </div>
-        <div className="mt-2">
+        <div className="mt-2 flex flex-wrap items-center gap-1">
+          <InjuryTag days={player.injuryDays} />
           <StatusPills player={player} save={save} onClub={onClub} />
         </div>
       </header>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 px-4 py-3 text-sm">
+        {player.injuryDays >= 1 ? (
+          <div className="col-span-2 min-w-0">
+            <dt className="text-xs text-faint">Injury</dt>
+            <dd className="font-mono text-xs">{injuryNote(player.injuryDays, save.gameYear, save.gameDay)}</dd>
+          </div>
+        ) : null}
         {facts.map((fact) => (
           <div key={fact.label} className="min-w-0">
             <dt className="text-xs text-faint">{fact.label}</dt>
@@ -168,11 +183,11 @@ function AttrRankKey() {
     <div className="mb-3 space-y-1 text-xs text-faint">
       <p className="flex flex-wrap gap-x-4 gap-y-1">
         <span className="inline-flex items-center gap-1.5">
-          <i className="h-3 w-0.5 bg-accent" aria-hidden="true" />
+          <i className="rank-mark rank-primary" aria-hidden="true" />
           0.10 and up
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <i className="h-3 w-0.5 bg-secondary" aria-hidden="true" />
+          <i className="rank-mark rank-secondary" aria-hidden="true" />
           0.05–0.10
         </span>
       </p>
@@ -190,6 +205,21 @@ function ClubLink({ name, onClick }: { name: string; onClick: () => void }) {
     >
       {name}
     </button>
+  );
+}
+
+function RoleRatingText({
+  rated,
+}: {
+  rated: { value: number; slot: string; attrs: string[] } | null;
+}) {
+  if (!rated) return <span className="text-faint">–</span>;
+  const band = bandOf(rated.value);
+  return (
+    <span title={`${rated.slot} · ${rated.attrs.join(", ")}`}>
+      <span className={band ? `attr-b${band}` : undefined}>{rated.value.toFixed(1)}</span>
+      <span className="ml-1 text-xs text-faint">{rated.slot}</span>
+    </span>
   );
 }
 

@@ -1,7 +1,7 @@
 import { useMemo } from "react";
+import { clubSizes } from "@/lib/cm/players";
 import type { Place } from "@/lib/cm/store";
 import type { ParsedSave } from "@/lib/cm/types";
-import { FLAG } from "@/lib/cm/types";
 import { ClubSelect, clubOptions } from "./club-select";
 
 export function Sidebar({
@@ -21,15 +21,7 @@ export function Sidebar({
   onFree: () => void;
   onSearch: () => void;
 }) {
-  const counts = useMemo(() => {
-    const map = new Map<number, number>();
-    let free = 0;
-    for (const player of save.players) {
-      map.set(player.clubId, (map.get(player.clubId) ?? 0) + 1);
-      if (player.flags & FLAG.free) free += 1;
-    }
-    return { map, free };
-  }, [save]);
+  const counts = useMemo(() => clubSizes(save.roster), [save]);
 
   const clubs = useMemo(() => clubOptions(save), [save]);
   const human = save.clubs.find((club) => club.id === save.humanClubId) ?? null;
@@ -47,17 +39,22 @@ export function Sidebar({
           onClick={() => onClub(human.id)}
           label={human.name}
           mark="Your club"
-          count={counts.map.get(human.id) ?? 0}
+          count={counts.get(human.id) ?? 0}
         />
       ) : (
         <p className="px-3 py-2 text-sm text-muted">No club marked as yours yet.</p>
       )}
-      <NavButton active={place.kind === "free"} onClick={onFree} label="Free agents" count={counts.free} />
+      <NavButton
+        active={place.kind === "free"}
+        onClick={onFree}
+        label="Free agents"
+        count={save.roster.freePlayers.length}
+      />
       <NavButton
         active={searchOn}
         onClick={onSearch}
         label={filterCount ? `Search · ${filterCount}` : "Search"}
-        count={save.players.length}
+        count={save.roster.count}
       />
 
       <p className="mt-3 px-3 pb-1 text-xs text-faint">Clubs</p>

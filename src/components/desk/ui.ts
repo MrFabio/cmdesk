@@ -21,15 +21,18 @@ export function chipClass(on: boolean): string {
   return on ? chipOn : chip;
 }
 
-/** Left rule for a position-rating weight. Primary is 0.10 and up; secondary is 0.05–0.10. */
+/**
+ * Position-rating weight. Both ranks use the accent: primary is a filled row,
+ * secondary is the same bar with no fill. Primary is 0.10 and up; secondary is 0.05–0.10.
+ */
 export function attrRankRow(rank: AttrRank | undefined): string {
-  if (rank === "primary") return "border-l-2 border-accent bg-surface-2";
-  if (rank === "secondary") return "border-l-2 border-secondary";
+  if (rank === "primary") return "rank-primary";
+  if (rank === "secondary") return "rank-secondary";
   return "";
 }
 
 export function attrRankLabel(rank: AttrRank | undefined): string {
   if (rank === "primary") return "font-medium text-fg";
-  if (rank === "secondary") return "font-medium text-secondary";
+  if (rank === "secondary") return "text-fg";
   return "text-muted";
 }

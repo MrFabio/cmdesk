@@ -1,16 +1,15 @@
-import { ROLES, type AttrKey } from "./types.ts";
+import { ATTRS, ROLE_MASK, ROLES, type AttrKey } from "./types.ts";
 
 /** Side bytes in player.dat: right +23, left +24, centre +25. Set when the byte is >= 15. */
 export const SIDE = { right: 1, left: 2, centre: 4 } as const;
 
-type Slot = "GK" | "SW" | "DC" | "DL" | "DMC" | "DML" | "MC" | "ML" | "AMC" | "AML" | "FC";
+type Slot = "GK" | "DC" | "DL" | "DMC" | "DML" | "MC" | "ML" | "AMC" | "AML" | "FC";
 
 /**
  * Position-rating weights from the CM 01/02 fit.
  * Primary is weight >= 0.10. Secondary is 0.05 up to 0.10.
- * The save only stores GK/SW/D/DM/M/AM/F plus side, so wide and central slots
- * are chosen from that. Sweeper has no separate fit and uses the central
- * defender weights. Wide attacking mid has no separate fit and uses the wide
+ * The save stores GK/D/DM/M/AM/F plus side, so wide and central slots are
+ * chosen from that. Wide attacking mid has no separate fit and uses the wide
  * mid weights. Every forward uses the central-forward weights. The wide-player
  * foot rating (about 0.06–0.08) is left out; feet are shown on their own.
  */
@@ -43,16 +42,6 @@ const HIDDEN_TITLE: Partial<Record<AttrKey, string>> = {
 
 const WEIGHTS: Record<Slot, Partial<Record<AttrKey, number>>> = {
   GK: { handling: 0.159, agility: 0.069, reflexes: 0.06 },
-  SW: {
-    marking: 0.115,
-    positioning: 0.114,
-    teamwork: 0.04,
-    passing: 0.031,
-    jumping: 0.027,
-    aggression: 0.024,
-    workRate: 0.022,
-    pace: 0.019,
-  },
   DC: {
     marking: 0.115,
     positioning: 0.114,
@@ -173,6 +162,97 @@ function rankForWeight(weight: number): AttrRank | null {
   return null;
 }
 
+const ATTR_LABEL = new Map(ATTRS.map((attr) => [attr.key, attr.label]));
+
+/**
+ * Extra weight on stamina for the comparison rating only.
+ * About one marking point for every six stamina points on a centre-back,
+ * so a fitter player edges ahead when the highlighted attributes are close.
+ */
+const STAMINA_PREFERENCE = 0.02;
+
+export type RoleRating = {
+  /** One decimal on the 1–20 scale the player page shows. */
+  value: number;
+  /** Slot the number belongs to, so two DCs can be compared with each other. */
+  slot: string;
+  /** Highlighted attributes, heaviest first. */
+  attrs: string[];
+};
+
+/**
+ * One number for comparing players in the same position.
+ * Uses the attributes the player page highlights (weight 0.05 and up),
+ * weighted the same way, on the displayed 1–20 values. Stamina then gets a
+ * small extra weight. Hidden attributes stay out. With several slots, the
+ * highest wins. A search focus limits the slots to the position and side
+ * being searched.
+ */
+export function roleRating(
+  posMask: number,
+  sideMask: number,
+  valueOf: (key: AttrKey) => number,
+  focus?: { posMask: number; sideMask: number },
+): RoleRating | null {
+  const wanted = (focus?.posMask ?? 0) & ROLE_MASK;
+  const pos = wanted ? posMask & wanted : posMask;
+  if (!pos) return null;
+  const side = focus?.sideMask ? focus.sideMask : sideMask;
+  let best: { scored: RoleRating; slot: Slot } | null = null;
+  for (const slot of slotsFor(pos, side)) {
+    const scored = scoreSlot(slot, valueOf);
+    if (!scored || (best && scored.value <= best.scored.value)) continue;
+    best = { scored, slot };
+  }
+  if (!best) return null;
+  return { ...best.scored, slot: slotLabel(best.slot, side) };
+}
+
+/** Wide weights are shared. The label follows the side that was scored. */
+function slotLabel(slot: Slot, sideMask: number): string {
+  if (slot === "FC") return "F";
+  const stem = slot === "DL" ? "D" : slot === "DML" ? "DM" : slot === "ML" ? "M" : slot === "AML" ? "AM" : "";
+  if (!stem) return slot;
+  const right = (sideMask & SIDE.right) !== 0;
+  const left = (sideMask & SIDE.left) !== 0;
+  if (right && !left) return `${stem}R`;
+  if (left && !right) return `${stem}L`;
+  if (right && left) return `${stem} RL`;
+  return slot;
+}
+
+function scoreSlot(slot: Slot, valueOf: (key: AttrKey) => number): RoleRating | null {
+  const weights = WEIGHTS[slot];
+  const used: { key: AttrKey; weight: number; value: number }[] = [];
+  for (const key of Object.keys(weights) as AttrKey[]) {
+    const weight = weights[key] ?? 0;
+    if (weight < SECONDARY) continue;
+    const value = valueOf(key);
+    if (!Number.isFinite(value) || value < 0) continue;
+    used.push({ key, weight, value });
+  }
+  const stamina = valueOf("stamina");
+  if (Number.isFinite(stamina) && stamina >= 0) {
+    const existing = used.find((row) => row.key === "stamina");
+    if (existing) existing.weight += STAMINA_PREFERENCE;
+    else used.push({ key: "stamina", weight: STAMINA_PREFERENCE, value: stamina });
+  }
+  if (used.length === 0) return null;
+  let sum = 0;
+  let weightSum = 0;
+  for (const row of used) {
+    sum += row.weight * row.value;
+    weightSum += row.weight;
+  }
+  if (weightSum <= 0) return null;
+  used.sort((a, b) => b.weight - a.weight || a.key.localeCompare(b.key));
+  return {
+    value: Math.round((sum / weightSum) * 10) / 10,
+    slot,
+    attrs: used.map((row) => ATTR_LABEL.get(row.key) ?? row.key),
+  };
+}
+
 function roleBit(label: (typeof ROLES)[number]["label"]): number {
   const role = ROLES.find((entry) => entry.label === label);
   if (!role) throw new Error(`Missing role ${label}`);
@@ -180,7 +260,6 @@ function roleBit(label: (typeof ROLES)[number]["label"]): number {
 }
 
 const GK = roleBit("GK");
-const SW = roleBit("SW");
 const D = roleBit("D");
 const DM = roleBit("DM");
 const M = roleBit("M");
@@ -194,7 +273,6 @@ function slotsFor(posMask: number, sideMask: number): Slot[] {
   const central = sideMask === 0 || (sideMask & SIDE.centre) !== 0;
   const slots: Slot[] = [];
   if (posMask & GK) slots.push("GK");
-  if (posMask & SW) slots.push("SW");
   if (posMask & D) {
     if (central) slots.push("DC");
     if (wide) slots.push("DL");
@@ -254,7 +332,6 @@ export function isPureGoalkeeper(posMask: number): boolean {
  */
 export type PitchSpot =
   | "GK"
-  | "SW"
   | "DL"
   | "DC"
   | "DR"
@@ -273,7 +350,7 @@ export type PitchSpot =
 
 /**
  * Spots this player is listed for. A role with no side is central, same as
- * the attribute map. Sweeper and goalkeeper ignore side.
+ * the attribute map. Goalkeeper ignores side.
  */
 export function playedSpots(posMask: number, sideMask: number): Set<PitchSpot> {
   const spots = new Set<PitchSpot>();
@@ -281,7 +358,6 @@ export function playedSpots(posMask: number, sideMask: number): Set<PitchSpot> {
   const right = (sideMask & SIDE.right) !== 0;
   const centre = sideMask === 0 || (sideMask & SIDE.centre) !== 0;
   if (posMask & GK) spots.add("GK");
-  if (posMask & SW) spots.add("SW");
   const line = (role: number, onLeft: PitchSpot, onCentre: PitchSpot, onRight: PitchSpot) => {
     if ((posMask & role) === 0) return;
     if (left) spots.add(onLeft);
@@ -311,7 +387,8 @@ const LINE_SPOTS: Partial<Record<number, readonly [PitchSpot, PitchSpot, PitchSp
  */
 export function circleSpots(row: number, col: number): PitchSpot[] {
   if (row === 0) return ["GK"];
-  if (row === 1) return ["SW"];
+  // Tactic files still use row 1 for a sweeper. Rate that circle as a centre-back.
+  if (row === 1) return ["DC"];
   const line = LINE_SPOTS[row];
   if (!line) return [];
   const [left, centre, right] = line;
@@ -324,7 +401,7 @@ export function circleSpots(row: number, col: number): PitchSpot[] {
 
 function fitSlot(row: number, col: number): Slot {
   if (row <= 0) return "GK";
-  if (row === 1) return "SW";
+  if (row === 1) return "DC";
   const wide = col <= 0 || col >= 4;
   if (row === 2) return wide ? "DL" : "DC";
   if (row === 3) return wide ? "DML" : "DMC";

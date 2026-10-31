@@ -64,16 +64,21 @@ export const GROUPS: { id: AttrGroup; label: string }[] = [
   { id: "hidden", label: "Hidden" },
 ];
 
-/** Outfield / goalkeeper role bits, threshold 15 in the file. */
+/**
+ * Positions the desk shows. The save still has a sweeper byte, but this
+ * database has no sweepers, so that role is not a position here.
+ */
 export const ROLES = [
   { bit: 1, label: "GK", title: "Goalkeeper" },
-  { bit: 2, label: "SW", title: "Sweeper" },
   { bit: 4, label: "D", title: "Defender" },
   { bit: 8, label: "DM", title: "Defensive mid" },
   { bit: 16, label: "M", title: "Midfielder" },
   { bit: 32, label: "AM", title: "Attacking mid" },
   { bit: 64, label: "F", title: "Forward" },
 ] as const;
+
+/** Bits that still count as a position. Drops a leftover sweeper bit on an old search. */
+export const ROLE_MASK = ROLES.reduce((mask, role) => mask | role.bit, 0);
 
 export const FLAG = {
   free: 1,
@@ -84,6 +89,8 @@ export const FLAG = {
   bosman: 32,
   arranged: 64,
   unprotected: 128,
+  /** Staff job byte 16. Needs a 16-bit column; the lower eight bits are taken. */
+  retired: 256,
 } as const;
 
 export type NationRec = {
@@ -164,6 +171,8 @@ export type PlayerRec = {
   morale: number;
   /** Match condition, 0–100. Below 0 when the save has no fitness table. */
   condition: number;
+  /** Days until he is fit. Below 0 when he is not injured. */
+  injuryDays: number;
   dobLabel: string;
   joinedLabel: string;
   expiresLabel: string;
@@ -178,6 +187,56 @@ export type PlayerRec = {
   rightFoot: number;
 };
 
+/**
+ * One row per player, stored as columns so a large database is a handful of
+ * typed arrays plus the name strings. A `PlayerRec` is built only for a row
+ * the screen is actually showing. Club membership is `clubPlayers` sliced by
+ * the sorted `clubKeys` / `clubOffsets` pair.
+ */
+export type Roster = {
+  count: number;
+  id: Int32Array;
+  nationId: Int32Array;
+  secondNationId: Int32Array;
+  clubId: Int32Array;
+  posMask: Uint8Array;
+  sideMask: Uint8Array;
+  age: Int16Array;
+  ca: Int16Array;
+  pa: Int16Array;
+  wage: Int32Array;
+  value: Int32Array;
+  expiresOrd: Int32Array;
+  flags: Uint16Array;
+  arrangedClubId: Int32Array;
+  loanFromClubId: Int32Array;
+  squadNo: Uint8Array;
+  morale: Uint8Array;
+  condition: Int16Array;
+  /** Days until fit, or -1. Parallel to `condition`. */
+  injuryDays: Int16Array;
+  intApps: Uint8Array;
+  intGoals: Uint8Array;
+  homeRep: Uint16Array;
+  currentRep: Uint16Array;
+  worldRep: Uint16Array;
+  releaseFee: Int32Array;
+  leftFoot: Int8Array;
+  rightFoot: Int8Array;
+  name: string[];
+  fullName: string[];
+  sortName: string[];
+  pos: string[];
+  dobLabel: string[];
+  joinedLabel: string[];
+  expiresLabel: string[];
+  squadStatus: string[];
+  clubKeys: Int32Array;
+  clubOffsets: Int32Array;
+  clubPlayers: Int32Array;
+  freePlayers: Int32Array;
+};
+
 export type ParsedSave = {
   fileName: string;
   compressed: boolean;
@@ -187,6 +246,8 @@ export type ParsedSave = {
   gameDateLabel: string;
   gameOrd: number;
   gameYear: number;
+  /** 0-based day of year of the game date. Below 0 when the date is missing. */
+  gameDay: number;
   humanClubId: number;
   nations: NationRec[];
   comps: CompRec[];
@@ -195,9 +256,10 @@ export type ParsedSave = {
   /**
    * Raw `human_manager.dat`. The picked eleven is decoded for the club on
    * screen, not for every club in the file. Null when the block is absent.
+   * Owns its buffer, so the rest of the file can be discarded.
    */
   humanManager: Uint8Array | null;
-  players: PlayerRec[];
+  roster: Roster;
   /** Int8 attribute values, row-major, ATTRS.length per player. -1 unknown. */
   attrs: Int8Array;
   warnings: string[];

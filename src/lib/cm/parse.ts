@@ -1,5 +1,6 @@
 import { displayAttr } from "./attr-display.ts";
 import { cstr, dateFrom, formatDate, i16, i32, monthOrd, u16, viewOf } from "./binary.ts";
+import { rosterDraft, sealRoster, type RosterDraft } from "./players.ts";
 import {
   ATTRS,
   ATTR_INDEX,
@@ -7,7 +8,6 @@ import {
   type CompRec,
   type HumanPick,
   type ParsedSave,
-  type PlayerRec,
   type ProgressUpdate,
   type TacticRec,
   type TacticSlot,
@@ -25,6 +25,8 @@ const HISTORY = 17;
 
 const JOB_MANAGER = 5;
 const JOB_ASSISTANT = 6;
+/** Staff `JobForClub` byte. A retired player still has a player record. */
+const JOB_RETIRED = 16;
 
 type Block = { name: string; position: number; size: number };
 
@@ -124,7 +126,7 @@ export function parseSave(
   const staffCount = recordCount(staff, STAFF, counts.get("staff.dat"), "staff.dat", warnings);
   const playersBin = must(byName, "player.dat");
   const playerCount = recordCount(playersBin, PLAYER, counts.get("player.dat"), "player.dat", warnings);
-  const conditions = readConditions(byName.get("injury.dat"), staffCount);
+  const fitness = readFitness(byName.get("injury.dat"), staffCount);
 
   const contracts = byName.has("contract.dat")
     ? readContracts(must(byName, "contract.dat"), warnings)
@@ -171,7 +173,11 @@ export function parseSave(
   const gameDate = game.date;
   const gameOrd = gameDate ? monthOrd(gameDate) : 0;
   const gameYear = gameDate ? gameDate.getUTCFullYear() : 0;
-  const players: PlayerRec[] = [];
+  const gameDay = gameDate
+    ? Math.round((gameDate.getTime() - Date.UTC(gameYear, 0, 1)) / 86_400_000)
+    : -1;
+  const draft = rosterDraft();
+  const shared = new Map<string, string>();
   const attrs = new Int8Array(staffCount * ATTRS.length);
   let written = 0;
 
@@ -185,6 +191,7 @@ export function parseSave(
     if (!names.full && !names.display) continue;
     const pAt = playerIndex * PLAYER;
     const clubId = i32(staffView, at + 57);
+    const job = staff[at + 61] ?? 0;
     const nationId = i32(staffView, at + 26);
     const dob = dateFrom(staffView, at + 16);
     const joined = dateFrom(staffView, at + 62);
@@ -194,6 +201,7 @@ export function parseSave(
     const hist = history.get(staffId) ?? [];
     let flags = statusFlags({
       clubId,
+      job,
       primary,
       history: hist,
       clubIdNow: clubId,
@@ -233,7 +241,7 @@ export function parseSave(
     const row = written;
     written += 1;
     writeAttrs(attrs, row, playerView, pAt, staff, at);
-    players.push({
+    pushPlayer(draft, shared, {
       id: staffId,
       name: names.display,
       fullName: names.full || names.display,
@@ -255,7 +263,8 @@ export function parseSave(
       loanFromClubId: loanFrom,
       squadNo: playersBin[pAt + 4] ?? 0,
       morale: playersBin[pAt + 69] ?? 0,
-      condition: conditions?.[i] ?? -1,
+      condition: fitness?.condition[i] ?? -1,
+      injuryDays: fitness?.injuryDays[i] ?? -1,
       dobLabel: dob ? formatDate(dob) : "",
       joinedLabel: joined ? formatDate(joined) : "",
       expiresLabel: expires ? formatDate(expires) : "",
@@ -271,13 +280,14 @@ export function parseSave(
     });
   }
 
-  if (!players.length) {
+  if (!written) {
     throw new Error("Staff and player tables were read, but no players were linked. The record size may not match this save.");
   }
 
   report(96, "Sorting the squad");
   const humanClubId = matchHumanClub(game.humanName, clubs);
-  const trimmed = attrs.slice(0, written * ATTRS.length);
+  const usedAttrs = written * ATTRS.length;
+  const trimmed = usedAttrs === attrs.length ? attrs : attrs.slice(0, usedAttrs);
 
   return {
     fileName,
@@ -288,13 +298,14 @@ export function parseSave(
     gameDateLabel: gameDate ? formatDate(gameDate) : "Date unknown",
     gameOrd,
     gameYear,
+    gameDay,
     humanClubId,
     nations,
     comps,
     clubs,
     tactics,
-    humanManager,
-    players,
+    humanManager: humanManager ? owned(humanManager) : null,
+    roster: sealRoster(draft),
     attrs: trimmed,
     warnings,
   };
@@ -302,9 +313,99 @@ export function parseSave(
 
 export function attrOf(save: ParsedSave, playerIndex: number, key: (typeof ATTRS)[number]["key"]): number {
   const intrinsic = save.attrs[playerIndex * ATTRS.length + ATTR_INDEX[key]] ?? -1;
-  const player = save.players[playerIndex];
-  if (!player) return intrinsic;
-  return displayAttr(key, intrinsic, player.ca);
+  const ca = save.roster.ca[playerIndex];
+  if (ca === undefined) return intrinsic;
+  return displayAttr(key, intrinsic, ca);
+}
+
+function shareText(pool: Map<string, string>, value: string): string {
+  const found = pool.get(value);
+  if (found !== undefined) return found;
+  pool.set(value, value);
+  return value;
+}
+
+function pushPlayer(
+  draft: RosterDraft,
+  shared: Map<string, string>,
+  row: {
+    id: number;
+    name: string;
+    fullName: string;
+    sortName: string;
+    nationId: number;
+    secondNationId: number;
+    clubId: number;
+    pos: string;
+    posMask: number;
+    sideMask: number;
+    age: number;
+    ca: number;
+    pa: number;
+    wage: number;
+    value: number;
+    expiresOrd: number;
+    flags: number;
+    arrangedClubId: number;
+    loanFromClubId: number;
+    squadNo: number;
+    morale: number;
+    condition: number;
+    injuryDays: number;
+    dobLabel: string;
+    joinedLabel: string;
+    expiresLabel: string;
+    intApps: number;
+    intGoals: number;
+    homeRep: number;
+    currentRep: number;
+    worldRep: number;
+    squadStatus: string;
+    releaseFee: number;
+    leftFoot: number;
+    rightFoot: number;
+  },
+) {
+  draft.id.push(row.id);
+  draft.nationId.push(row.nationId);
+  draft.secondNationId.push(row.secondNationId);
+  draft.clubId.push(row.clubId);
+  draft.posMask.push(row.posMask);
+  draft.sideMask.push(row.sideMask);
+  draft.age.push(row.age);
+  draft.ca.push(row.ca);
+  draft.pa.push(row.pa);
+  draft.wage.push(row.wage);
+  draft.value.push(row.value);
+  draft.expiresOrd.push(row.expiresOrd);
+  draft.flags.push(row.flags);
+  draft.arrangedClubId.push(row.arrangedClubId);
+  draft.loanFromClubId.push(row.loanFromClubId);
+  draft.squadNo.push(row.squadNo);
+  draft.morale.push(row.morale);
+  draft.condition.push(row.condition);
+  draft.injuryDays.push(row.injuryDays);
+  draft.intApps.push(row.intApps);
+  draft.intGoals.push(row.intGoals);
+  draft.homeRep.push(row.homeRep);
+  draft.currentRep.push(row.currentRep);
+  draft.worldRep.push(row.worldRep);
+  draft.releaseFee.push(row.releaseFee);
+  draft.leftFoot.push(row.leftFoot);
+  draft.rightFoot.push(row.rightFoot);
+  draft.name.push(row.name);
+  draft.fullName.push(row.fullName);
+  draft.sortName.push(row.sortName);
+  draft.pos.push(shareText(shared, row.pos));
+  draft.dobLabel.push(shareText(shared, row.dobLabel));
+  draft.joinedLabel.push(shareText(shared, row.joinedLabel));
+  draft.expiresLabel.push(shareText(shared, row.expiresLabel));
+  draft.squadStatus.push(shareText(shared, row.squadStatus));
+}
+
+function owned(block: Uint8Array): Uint8Array {
+  if (block.byteOffset === 0 && block.byteLength === block.buffer.byteLength) return block;
+  return block.slice();
 }
 
 function must(map: Map<string, Uint8Array>, name: string): Uint8Array {
@@ -345,10 +446,9 @@ function readBlock(file: Uint8Array, block: Block, compressed: boolean): Uint8Ar
       const count = mark - 128;
       const value = file[pointer]!;
       pointer += 1;
-      for (let i = 0; i < count && written < block.size; i += 1) {
-        out[written] = value;
-        written += 1;
-      }
+      const end = Math.min(block.size, written + count);
+      if (end > written) out.fill(value, written, end);
+      written = end;
     }
   }
   return out;
@@ -648,19 +748,42 @@ function readContracts(block: Uint8Array, warnings: string[]): Contract[] {
 type Hist = { year: number; clubId: number; onLoan: number };
 
 const FITNESS = 31;
+const INJURY_ENTRY = 48;
 
-/** One fitness row per staff index. Condition is the two words at +8 and +10, times each other, over 1,000,000. */
-function readConditions(block: Uint8Array | undefined, staffCount: number): Int16Array | null {
+/**
+ * One 31-byte fitness row per staff index, then an int32 count and 48-byte
+ * injury entries. Condition is the words at +8 and +10, times each other,
+ * over 1,000,000. The int32 at +0x0e is the current injury, or -1.
+ * Days still out are the int16 at +0x2c of that entry.
+ */
+function readFitness(
+  block: Uint8Array | undefined,
+  staffCount: number,
+): { condition: Int16Array; injuryDays: Int16Array } | null {
   if (!block || block.length < staffCount * FITNESS) return null;
   const view = viewOf(block);
-  const out = new Int16Array(staffCount);
+  const condition = new Int16Array(staffCount);
+  const injuryDays = new Int16Array(staffCount);
+  injuryDays.fill(-1);
+  const tableAt = staffCount * FITNESS;
+  let entries = 0;
+  if (block.length >= tableAt + 4) {
+    const count = view.getInt32(tableAt, true);
+    const end = tableAt + 4 + count * INJURY_ENTRY;
+    if (count > 0 && count <= 200_000 && end <= block.length) entries = count;
+  }
   for (let i = 0; i < staffCount; i += 1) {
     const at = i * FITNESS;
     const fitness = view.getUint16(at + 8, true);
     const match = view.getUint16(at + 10, true);
-    out[i] = Math.floor((fitness * match) / 1_000_000);
+    condition[i] = Math.floor((fitness * match) / 1_000_000);
+    if (!entries) continue;
+    const index = view.getInt32(at + 0x0e, true);
+    if (index < 0 || index >= entries) continue;
+    const days = view.getInt16(tableAt + 4 + index * INJURY_ENTRY + 0x2c, true);
+    if (days > 0) injuryDays[i] = days;
   }
-  return out;
+  return { condition, injuryDays };
 }
 
 function readHistory(block: Uint8Array, indexed: number | undefined, warnings: string[]) {
@@ -725,9 +848,9 @@ function personName(
 
 function positionOf(view: DataView, at: number): { label: string; mask: number; side: number } {
   const role = (offset: number) => signed(view.getUint8(at + offset));
+  // Byte +16 is sweeper. This database has none, so it is not a position.
   const roles = [
     { bit: 1, label: "GK", value: role(15) },
-    { bit: 2, label: "SW", value: role(16) },
     { bit: 4, label: "D", value: role(17) },
     { bit: 8, label: "DM", value: role(18) },
     { bit: 16, label: "M", value: role(19) },
@@ -837,6 +960,7 @@ function signed(value: number): number {
 
 function statusFlags(input: {
   clubId: number;
+  job: number;
   primary: Contract | undefined;
   history: Hist[];
   clubIdNow: number;
@@ -847,7 +971,10 @@ function statusFlags(input: {
   expires: Date | null;
 }): number {
   let flags = 0;
-  if (input.clubId < 0) flags |= FLAG.free;
+  const retired = input.job === JOB_RETIRED;
+  if (retired) flags |= FLAG.retired;
+  // No club, but still a player. Retired staff stay in the file with ClubJob < 0.
+  if (input.clubId < 0 && !retired) flags |= FLAG.free;
   const status = input.primary?.transferStatus ?? 0;
   if (status & 1) flags |= FLAG.listed;
   if (status & 8) flags |= FLAG.request;

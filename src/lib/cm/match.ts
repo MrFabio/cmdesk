@@ -1,8 +1,9 @@
 import { readHumanPick } from "./parse.ts";
+import { clubPlayerIndexes, playerAt } from "./players.ts";
 import type { ClubRec, ParsedSave, PlayerRec, TacticRec } from "./types.ts";
 
 export type MatchSpot = {
-  /** Index into `save.players`, for `openPlayer`. */
+  /** Index into `save.roster`, for `openPlayer`. */
   index: number;
   player: PlayerRec;
   /** Index in the club's 20 match-squad ids. */
@@ -31,17 +32,17 @@ export type MatchLineup = {
  */
 export function matchLineup(save: ParsedSave, club: ClubRec): MatchLineup {
   const byId = new Map<number, number>();
-  save.players.forEach((player, index) => {
-    if (player.clubId !== club.id || byId.has(player.id)) return;
-    byId.set(player.id, index);
-  });
+  const atClub = clubPlayerIndexes(save.roster, club.id);
+  for (let i = 0; i < atClub.length; i += 1) {
+    const index = atClub[i]!;
+    const id = save.roster.id[index]!;
+    if (!byId.has(id)) byId.set(id, index);
+  }
   const spotFor = (staffId: number, squadIndex: number): MatchSpot | null => {
     if (staffId < 0) return null;
     const index = byId.get(staffId);
     if (index === undefined) return null;
-    const player = save.players[index];
-    if (!player) return null;
-    return { index, player, squadIndex };
+    return { index, player: playerAt(save, index), squadIndex };
   };
   const spots = Array.from({ length: 20 }, (_, squadIndex) => spotFor(club.matchSquad[squadIndex] ?? -1, squadIndex));
   const listed = spots.filter((spot) => spot !== null);

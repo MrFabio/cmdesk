@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { attrOf } from "@/lib/cm/parse";
+import { playerAt } from "@/lib/cm/players";
 import { money, personLabel, wageText } from "@/lib/cm/labels";
 import { squadOf } from "@/lib/cm/query";
 import { attrRankTitle, attrRanksFor, type AttrRank } from "@/lib/cm/positions";
@@ -13,7 +14,10 @@ export function PlayerCompare({ save, index }: { save: ParsedSave; index: number
   const nameStyle = useSettings((state) => state.nameStyle);
   const currency = useSettings((state) => state.currency);
   const wagePeriod = useSettings((state) => state.wagePeriod);
-  const player = save.players[index];
+  const player = useMemo(
+    () => (index >= 0 && index < save.roster.count ? playerAt(save, index) : undefined),
+    [save, index],
+  );
   const [otherIndex, setOtherIndex] = useState<number | null>(null);
 
   const clubId = save.humanClubId;
@@ -51,7 +55,10 @@ export function PlayerCompare({ save, index }: { save: ParsedSave; index: number
     );
   }
 
-  const other = otherIndex !== null ? save.players[otherIndex] : null;
+  const other =
+    otherIndex !== null && otherIndex >= 0 && otherIndex < save.roster.count
+      ? playerAt(save, otherIndex)
+      : null;
   const ranks = attrRanksFor(player.posMask, player.sideMask);
   const isGk = (player.posMask & 1) !== 0 || !!(other && (other.posMask & 1) !== 0);
   const groups = GROUPS.filter((group) => group.id !== "goalkeeping" || isGk);

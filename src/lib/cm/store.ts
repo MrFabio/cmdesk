@@ -4,16 +4,51 @@ import type { ParsedSave, ProgressUpdate } from "./types.ts";
 
 type ClubMark = { id: number; name: string };
 
+const CLUB_KEY = "cmdesk-club";
+
+function pickedClub(previous: { humanClubId: number; clubs: ClubMark[] } | ClubMark | null): ClubMark | null {
+  if (!previous) return null;
+  if ("clubs" in previous) {
+    if (previous.humanClubId < 0) return null;
+    const club = previous.clubs.find((row) => row.id === previous.humanClubId);
+    return club ? { id: club.id, name: club.name } : null;
+  }
+  if (previous.id < 0 || !previous.name) return null;
+  return { id: previous.id, name: previous.name };
+}
+
 /** The club marked as yours, when the next file still contains that same club. */
 export function keptHumanClub(
-  previous: { humanClubId: number; clubs: ClubMark[] } | null,
+  previous: { humanClubId: number; clubs: ClubMark[] } | ClubMark | null,
   next: { clubs: ClubMark[] },
 ): number | null {
-  if (!previous || previous.humanClubId < 0) return null;
-  const picked = previous.clubs.find((club) => club.id === previous.humanClubId);
+  const picked = pickedClub(previous);
   if (!picked) return null;
   const again = next.clubs.find((club) => club.id === picked.id && club.name === picked.name);
   return again ? again.id : null;
+}
+
+export function readKeptClub(): ClubMark | null {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(CLUB_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ClubMark>;
+    if (typeof parsed.id !== "number" || !Number.isInteger(parsed.id) || parsed.id < 0) return null;
+    if (typeof parsed.name !== "string" || !parsed.name) return null;
+    return { id: parsed.id, name: parsed.name };
+  } catch {
+    return null;
+  }
+}
+
+function writeKeptClub(club: ClubMark) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(CLUB_KEY, JSON.stringify({ id: club.id, name: club.name }));
+  } catch {
+    // Storage can be blocked. The open career still shows the club.
+  }
 }
 
 export type Place = { kind: "club"; clubId: number } | { kind: "free" } | { kind: "search" };
@@ -66,7 +101,7 @@ export const useDesk = create<DeskState>((set) => ({
   highlight: 0,
   openSave: (save) =>
     set((state) => {
-      const kept = keptHumanClub(state.save, save);
+      const kept = keptHumanClub(state.save, save) ?? keptHumanClub(readKeptClub(), save);
       const next = kept == null ? save : { ...save, humanClubId: kept };
       const clubId = next.humanClubId >= 0 ? next.humanClubId : (next.clubs[0]?.id ?? -1);
       return {
@@ -89,6 +124,8 @@ export const useDesk = create<DeskState>((set) => ({
   setHumanClub: (clubId) =>
     set((state) => {
       if (!state.save) return state;
+      const club = state.save.clubs.find((row) => row.id === clubId);
+      if (club) writeKeptClub({ id: club.id, name: club.name });
       return {
         save: { ...state.save, humanClubId: clubId },
         place: { kind: "club" as const, clubId },

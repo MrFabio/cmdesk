@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { FLAG, type ParsedSave, type PlayerRec } from "./types.ts";
-import { emptyFilters, searchPlayers, sortHits } from "./query.ts";
+import { rosterFrom } from "./players.ts";
+import { ATTRS, ATTR_INDEX, FLAG, type ParsedSave, type PlayerRec } from "./types.ts";
+import { emptyFilters, rateHits, searchPlayers, sortHits, squadOf } from "./query.ts";
+import { intrinsicForDisplay } from "./attr-display.ts";
 import type { Lookups } from "./labels.ts";
 
 function player(patch: Partial<PlayerRec> & Pick<PlayerRec, "sortName">): PlayerRec {
@@ -27,6 +29,7 @@ function player(patch: Partial<PlayerRec> & Pick<PlayerRec, "sortName">): Player
     squadNo: 0,
     morale: 0,
     condition: -1,
+    injuryDays: -1,
     dobLabel: "",
     joinedLabel: "",
     expiresLabel: "",
@@ -70,11 +73,12 @@ describe("column sort and saved-search filters", () => {
   });
 
   it("keeps an unprotected search to players with that flag", () => {
+    const rows = [
+      player({ sortName: "Open", flags: FLAG.unprotected }),
+      player({ sortName: "Tied", flags: 0 }),
+    ];
     const save = {
-      players: [
-        player({ sortName: "Open", flags: FLAG.unprotected }),
-        player({ sortName: "Tied", flags: 0 }),
-      ],
+      roster: rosterFrom(rows),
       clubs: [],
       gameOrd: 1,
       attrs: new Int8Array(),
@@ -84,5 +88,95 @@ describe("column sort and saved-search filters", () => {
       found.map((hit) => hit.player.sortName),
       ["Open"],
     );
+  });
+
+  it("hides retired players until that filter is turned off", () => {
+    const rows = [
+      player({ sortName: "Rogne Thomas", name: "Thomas Rogne", fullName: "Thomas Pauck Rogne", flags: FLAG.retired }),
+      player({ sortName: "Rogne Young", name: "Young Rogne", fullName: "Young Rogne", flags: 0 }),
+    ];
+    const save = {
+      roster: rosterFrom(rows),
+      clubs: [],
+      gameOrd: 1,
+      attrs: new Int8Array(),
+    } as unknown as ParsedSave;
+    assert.deepEqual(
+      searchPlayers(save, emptyFilters(), "rogne").map((hit) => hit.player.fullName),
+      ["Young Rogne"],
+    );
+    assert.deepEqual(
+      searchPlayers(save, { ...emptyFilters(), hideRetired: false }, "rogne").map((hit) => hit.player.fullName),
+      ["Thomas Pauck Rogne", "Young Rogne"],
+    );
+    assert.equal(searchPlayers(save, { ...emptyFilters(), hideRetired: false }, "").length, 0);
+  });
+
+  it("waits for a name or a filter before listing the whole database", () => {
+    const rows = [
+      player({ sortName: "Hale Jon", name: "Jon", fullName: "Jon Hale" }),
+      player({ sortName: "Other", name: "Other", fullName: "Other" }),
+    ];
+    const save = {
+      roster: rosterFrom(rows),
+      clubs: [],
+      gameOrd: 1,
+      attrs: new Int8Array(),
+    } as unknown as ParsedSave;
+    assert.equal(searchPlayers(save, emptyFilters(), "").length, 0);
+    assert.deepEqual(
+      searchPlayers(save, emptyFilters(), "hale").map((hit) => hit.player.fullName),
+      ["Jon Hale"],
+    );
+  });
+
+  it("reads a squad from the club index", () => {
+    const save = {
+      roster: rosterFrom([
+        player({ sortName: "A", clubId: 2 }),
+        player({ sortName: "B", clubId: 5 }),
+        player({ sortName: "C", clubId: 2 }),
+      ]),
+      clubs: [],
+      gameOrd: 1,
+      attrs: new Int8Array(),
+    } as unknown as ParsedSave;
+    assert.deepEqual(
+      squadOf(save, 2).map((hit) => hit.player.sortName),
+      ["A", "C"],
+    );
+  });
+
+  it("sorts rating high to low and leaves an unscored player last", () => {
+    const save = { players: [], clubs: [] } as unknown as ParsedSave;
+    const hits = [
+      { index: 0, player: player({ sortName: "Low" }), rating: 10 },
+      { index: 1, player: player({ sortName: "None" }), rating: -1 },
+      { index: 2, player: player({ sortName: "High" }), rating: 16.5 },
+    ];
+    assert.deepEqual(
+      sortHits(hits, "rating", "desc", save, lookups).map((hit) => hit.player.sortName),
+      ["High", "Low", "None"],
+    );
+  });
+
+  it("rates a centre-back from the displayed marking and positioning", () => {
+    const ca = 100;
+    const row = player({ sortName: "Cover", pos: "D C", posMask: 4, sideMask: 4, ca });
+    const attrs = new Int8Array(ATTRS.length);
+    attrs.fill(-1);
+    attrs[ATTR_INDEX.marking] = intrinsicForDisplay("marking", 10, ca);
+    attrs[ATTR_INDEX.positioning] = intrinsicForDisplay("positioning", 20, ca);
+    const save = {
+      roster: rosterFrom([row]),
+      clubs: [],
+      gameOrd: 1,
+      attrs,
+    } as unknown as ParsedSave;
+    const [hit] = rateHits(save, [{ index: 0, player: row }]);
+    assert.equal(hit?.rating, 15);
+    assert.equal(hit?.ratingSlot, "DC");
+    assert.match(hit?.ratingTitle ?? "", /Marking/);
+    assert.match(hit?.ratingTitle ?? "", /Positioning/);
   });
 });

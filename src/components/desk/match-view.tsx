@@ -1,12 +1,19 @@
-import { useEffect, useRef } from "react";
-import { conditionText, personLabel } from "@/lib/cm/labels";
+import { useEffect, useMemo, useRef } from "react";
+import { bandOf, conditionText, injurySpan, personLabel } from "@/lib/cm/labels";
 import type { MatchLineup, MatchSpot } from "@/lib/cm/match";
+import { attrOf } from "@/lib/cm/parse";
+import { roleRating, type RoleRating } from "@/lib/cm/positions";
 import type { MatchSuggestion, SuggestedPick } from "@/lib/cm/suggest";
-import type { TacticSlot } from "@/lib/cm/types";
+import type { ParsedSave, TacticSlot } from "@/lib/cm/types";
 import { useSettings } from "@/lib/cm/settings";
 import { PitchOutline } from "./pitch";
-import { MoraleText } from "./stat";
+import { MoraleText, Stat } from "./stat";
+import { InjuryTag } from "./status-pills";
 import { chipClass } from "./ui";
+
+const boardWidth = "mx-auto w-full max-w-4xl";
+const pitchFrame = "relative mx-auto w-full max-w-2xl @container";
+const pitchStat = "font-mono text-[10px] leading-tight @min-[28rem]:text-xs @min-[48rem]:text-sm";
 
 function place(row: number, col: number, nudge: number): { x: number; y: number } {
   return {
@@ -16,6 +23,7 @@ function place(row: number, col: number, nudge: number): { x: number; y: number 
 }
 
 export function MatchView({
+  save,
   lineup,
   suggestion,
   mode,
@@ -24,6 +32,7 @@ export function MatchView({
   onHighlight,
   onOpen,
 }: {
+  save: ParsedSave;
   lineup: MatchLineup;
   suggestion: MatchSuggestion | null;
   mode: "picked" | "suggested";
@@ -36,6 +45,7 @@ export function MatchView({
   const scroller = useRef<HTMLDivElement>(null);
   const shown = mode === "suggested" && suggestion ? suggestionLineup(suggestion) : lineup;
   const shape = shown.tactic?.slots ?? null;
+  const ratings = useMemo(() => rateSpots(save, shown.list), [save, shown.list]);
 
   useEffect(() => {
     const row = scroller.current?.querySelector(`[data-rank="${highlight}"]`);
@@ -61,6 +71,7 @@ export function MatchView({
         <SuggestedBoard
           suggestion={suggestion}
           lineup={shown}
+          ratings={ratings}
           highlight={highlight}
           nameStyle={nameStyle}
           onOpen={open}
@@ -72,6 +83,7 @@ export function MatchView({
       ) : !shape ? (
         <SquadList
           spots={shown.list}
+          ratings={ratings}
           highlight={highlight}
           nameStyle={nameStyle}
           note="The shape is not in this save."
@@ -82,21 +94,23 @@ export function MatchView({
           {shown.tactic?.name ? (
             <p className="mb-2 text-xs text-muted">{shown.tactic.name}</p>
           ) : null}
-          <div className="relative mx-auto w-full max-w-sm">
+          <div className={pitchFrame}>
             <PitchOutline orientation="portrait" label="Match pitch" />
             <Dots
               lineup={shown}
               slots={shape}
+              ratings={ratings}
               highlight={highlight}
               nameStyle={nameStyle}
               onOpen={open}
             />
           </div>
           {shown.bench.length > 0 ? (
-            <div className="mx-auto mt-4 w-full max-w-sm">
+            <div className={`mt-4 ${boardWidth}`}>
               <p className="mb-1 text-xs text-faint">Bench</p>
               <SquadList
                 spots={shown.bench}
+                ratings={ratings}
                 highlight={highlight}
                 nameStyle={nameStyle}
                 inset={false}
@@ -124,6 +138,18 @@ function suggestionLineup(suggestion: MatchSuggestion): MatchLineup {
   };
 }
 
+function rateSpots(save: ParsedSave, spots: MatchSpot[]): Map<number, RoleRating | null> {
+  const ratings = new Map<number, RoleRating | null>();
+  for (const spot of spots) {
+    if (ratings.has(spot.index)) continue;
+    ratings.set(
+      spot.index,
+      roleRating(spot.player.posMask, spot.player.sideMask, (key) => attrOf(save, spot.index, key)),
+    );
+  }
+  return ratings;
+}
+
 function toSpot(pick: SuggestedPick, squadIndex: number): MatchSpot {
   return { index: pick.index, player: pick.player, squadIndex };
 }
@@ -131,12 +157,14 @@ function toSpot(pick: SuggestedPick, squadIndex: number): MatchSpot {
 function SuggestedBoard({
   suggestion,
   lineup,
+  ratings,
   highlight,
   nameStyle,
   onOpen,
 }: {
   suggestion: MatchSuggestion;
   lineup: MatchLineup;
+  ratings: Map<number, RoleRating | null>;
   highlight: number;
   nameStyle: "common" | "full";
   onOpen: (spot: MatchSpot, rank: number) => void;
@@ -159,14 +187,23 @@ function SuggestedBoard({
         <p className="py-8 text-sm text-muted">No players in this squad.</p>
       ) : (
         <>
-          <div className="relative mx-auto w-full max-w-sm">
+          <div className={pitchFrame}>
             <PitchOutline orientation="portrait" label="Suggested pitch" />
-            <Dots lineup={lineup} slots={shape} highlight={highlight} nameStyle={nameStyle} onOpen={onOpen} />
+            <Dots
+              lineup={lineup}
+              slots={shape}
+              ratings={ratings}
+              highlight={highlight}
+              nameStyle={nameStyle}
+              onOpen={onOpen}
+              naturalOf={(spot) => meta.get(spot.index)?.natural}
+            />
           </div>
           <SuggestedList
             title="Starts"
             spots={lineup.pitch.filter((spot) => spot !== null)}
             meta={meta}
+            ratings={ratings}
             highlight={highlight}
             nameStyle={nameStyle}
             rankOf={(spot) => lineup.list.indexOf(spot)}
@@ -177,6 +214,7 @@ function SuggestedBoard({
               title="Bench"
               spots={lineup.bench}
               meta={meta}
+              ratings={ratings}
               highlight={highlight}
               nameStyle={nameStyle}
               rankOf={(spot) => lineup.list.indexOf(spot)}
@@ -193,6 +231,7 @@ function SuggestedList({
   title,
   spots,
   meta,
+  ratings,
   highlight,
   nameStyle,
   rankOf,
@@ -201,13 +240,14 @@ function SuggestedList({
   title: string;
   spots: MatchSpot[];
   meta: Map<number, SuggestedPick>;
+  ratings: Map<number, RoleRating | null>;
   highlight: number;
   nameStyle: "common" | "full";
   rankOf: (spot: MatchSpot) => number;
   onOpen: (spot: MatchSpot, rank: number) => void;
 }) {
   return (
-    <div className="mx-auto mt-4 w-full max-w-sm">
+    <div className={`mt-4 ${boardWidth}`}>
       <p className="mb-1 text-xs text-faint">{title}</p>
       <ul>
         {spots.map((spot) => {
@@ -222,13 +262,17 @@ function SuggestedList({
                 onClick={() => onOpen(spot, rank)}
                 className={`flex w-full items-baseline gap-2 border-b border-line py-2 text-left hover:bg-surface-2 ${active ? "bg-surface-2" : ""}`}
               >
-                <span className="min-w-0 flex-1 truncate font-medium">{personLabel(spot.player, nameStyle)}</span>
+                <span className="flex min-w-0 flex-1 items-center gap-1">
+                  <span className="truncate font-medium">{personLabel(spot.player, nameStyle)}</span>
+                  <InjuryTag days={spot.player.injuryDays} />
+                </span>
                 <span className={`shrink-0 font-mono text-xs ${pick && !pick.natural ? "text-secondary" : "text-muted"}`}>
                   {spot.player.pos}
                   {pick && !pick.natural ? " · out" : ""}
                 </span>
                 <span className="w-10 shrink-0 text-right font-mono text-xs text-muted">{conditionText(spot.player.condition)}</span>
                 <MoraleText value={spot.player.morale} compact />
+                <AgeAbility player={spot.player} rating={ratings.get(spot.index) ?? null} />
               </button>
             </li>
           );
@@ -241,15 +285,19 @@ function SuggestedList({
 function Dots({
   lineup,
   slots,
+  ratings,
   highlight,
   nameStyle,
   onOpen,
+  naturalOf,
 }: {
   lineup: MatchLineup;
   slots: TacticSlot[];
+  ratings: Map<number, RoleRating | null>;
   highlight: number;
   nameStyle: "common" | "full";
   onOpen: (spot: MatchSpot, rank: number) => void;
+  naturalOf?: (spot: MatchSpot) => boolean | undefined;
 }) {
   const used = new Map<string, number>();
   return (
@@ -272,6 +320,8 @@ function Dots({
             x={point.x}
             y={point.y}
             name={personLabel(spot.player, nameStyle)}
+            rating={ratings.get(spot.index) ?? null}
+            natural={naturalOf?.(spot)}
             onOpen={onOpen}
           />
         );
@@ -287,6 +337,8 @@ function PlayerDot({
   x,
   y,
   name,
+  rating,
+  natural,
   onOpen,
 }: {
   spot: MatchSpot;
@@ -295,30 +347,70 @@ function PlayerDot({
   x: number;
   y: number;
   name: string;
+  rating: RoleRating | null;
+  natural?: boolean;
   onOpen: (spot: MatchSpot, rank: number) => void;
 }) {
   const number = spot.player.squadNo > 0 ? String(spot.player.squadNo) : "";
+  const condition = conditionText(spot.player.condition);
+  const rated = rating ? `${rating.value.toFixed(1)} ${rating.slot}` : "–";
   return (
     <button
       type="button"
       data-rank={rank}
-      title={name}
+      title={`${name}, ${rated}, CA ${spot.player.ca}, ${spot.player.injuryDays >= 1 ? injurySpan(spot.player.injuryDays) : condition}`}
       style={{ left: `${x}%`, top: `${y}%` }}
       onClick={() => onOpen(spot, rank)}
-      className={`absolute flex w-[4.5rem] -translate-x-1/2 -translate-y-1/2 flex-col items-center ${active ? "z-10" : ""}`}
+      className={`absolute flex w-16 -translate-x-1/2 -translate-y-1/2 flex-col items-center @min-[28rem]:w-20 @min-[36rem]:w-24 @min-[48rem]:w-32 ${active ? "z-10" : ""}`}
     >
       <span
-        className={`flex h-7 w-7 items-center justify-center rounded-full bg-accent font-mono text-xs font-medium text-accent-ink ${active ? "outline outline-2 outline-offset-2 outline-fg" : ""}`}
+        className={`flex h-7 w-7 items-center justify-center rounded-full bg-accent font-mono text-xs font-medium text-accent-ink @min-[28rem]:h-8 @min-[28rem]:w-8 @min-[48rem]:h-10 @min-[48rem]:w-10 @min-[48rem]:text-sm ${active ? "outline outline-2 outline-offset-2 outline-fg" : ""}`}
       >
         {number}
       </span>
-      <span className="mt-0.5 max-w-full truncate text-center text-[10px] leading-tight text-fg">{name}</span>
+      <span className="mt-0.5 max-w-full truncate text-center text-[10px] leading-tight text-fg @min-[28rem]:text-xs @min-[48rem]:text-sm">
+        {name}
+      </span>
+      <AgeAbility player={spot.player} rating={rating} pitch />
+      {spot.player.injuryDays >= 1 ? (
+        <InjuryTag days={spot.player.injuryDays} />
+      ) : (
+        <span className={`${pitchStat} text-muted`}>{condition}</span>
+      )}
+      <span className={pitchStat}>
+        <MoraleText value={spot.player.morale} compact />
+      </span>
+      {natural === false ? <span className={`${pitchStat} text-secondary`}>out</span> : null}
     </button>
+  );
+}
+
+function AgeAbility({
+  player,
+  rating,
+  pitch = false,
+}: {
+  player: MatchSpot["player"];
+  rating: RoleRating | null;
+  pitch?: boolean;
+}) {
+  const band = rating ? bandOf(rating.value) : null;
+  const title = rating ? `${rating.slot} · ${rating.attrs.join(", ")}` : undefined;
+  return (
+    <span
+      title={title}
+      className={`shrink-0 text-center font-mono leading-tight ${pitch ? "text-[10px] @min-[28rem]:text-xs @min-[48rem]:text-sm" : "text-xs"}`}
+    >
+      {rating ? <span className={band ? `attr-b${band}` : undefined}>{rating.value.toFixed(1)}</span> : <span className="text-faint">–</span>}
+      <span className="text-faint"> · </span>
+      <Stat value={player.ca} kind="ability" />
+    </span>
   );
 }
 
 function SquadList({
   spots,
+  ratings,
   highlight,
   nameStyle,
   note,
@@ -327,6 +419,7 @@ function SquadList({
   onOpen,
 }: {
   spots: MatchSpot[];
+  ratings: Map<number, RoleRating | null>;
   highlight: number;
   nameStyle: "common" | "full";
   note?: string;
@@ -351,8 +444,14 @@ function SquadList({
                 className={`flex w-full items-baseline gap-2 border-b border-line py-2 text-left hover:bg-surface-2 ${inset ? "px-3" : ""} ${active ? "bg-surface-2" : ""}`}
               >
                 <span className="w-6 shrink-0 font-mono text-xs text-faint">{number}</span>
-                <span className="min-w-0 flex-1 truncate font-medium">{personLabel(spot.player, nameStyle)}</span>
+                <span className="flex min-w-0 flex-1 items-center gap-1">
+                  <span className="truncate font-medium">{personLabel(spot.player, nameStyle)}</span>
+                  <InjuryTag days={spot.player.injuryDays} />
+                </span>
                 <span className="shrink-0 font-mono text-xs text-muted">{spot.player.pos}</span>
+                <span className="w-10 shrink-0 text-right font-mono text-xs text-muted">{conditionText(spot.player.condition)}</span>
+                <MoraleText value={spot.player.morale} compact />
+                <AgeAbility player={spot.player} rating={ratings.get(spot.index) ?? null} />
               </button>
             </li>
           );

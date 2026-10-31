@@ -72,7 +72,6 @@ function LandscapeMarks({ fill, stroke, mark }: { fill: string; stroke: string; 
 /** ViewBox 150×100. Attack to the right, left wing along the top. */
 const SPOTS: { id: PitchSpot; x: number; y: number; title: string }[] = [
   { id: "GK", x: 16, y: 50, title: "Goalkeeper" },
-  { id: "SW", x: 33, y: 50, title: "Sweeper" },
   { id: "DL", x: 48, y: 16, title: "Defender, left" },
   { id: "DC", x: 48, y: 50, title: "Defender, centre" },
   { id: "DR", x: 48, y: 84, title: "Defender, right" },

@@ -71,6 +71,24 @@
   --attr-6: #5ad4f0;
 }
 
+/* Same accent for both position weights. Fill marks the stronger rank. */
+.rank-primary {
+  border-left: 2px solid var(--color-accent);
+  background-color: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+.rank-secondary {
+  border-left: 2px solid var(--color-accent);
+}
+.rank-mark {
+  display: inline-block;
+  width: 1.15rem;
+  height: 0.7rem;
+  box-shadow: inset 0 0 0 1px var(--color-line);
+}
+.rank-mark.rank-secondary {
+  background-color: var(--color-bg);
+}
+
 .attr-b1 { color: var(--attr-1); }
 .attr-b2 { color: var(--attr-2); }
 .attr-b3 { color: var(--attr-3); }
@@ -97,6 +115,12 @@
   --status-arranged-bg: #d9dde4;
   --status-expiring-fg: #8a4b12;
   --status-expiring-bg: #f3e0c4;
+  --status-retired-fg: #3d4450;
+  --status-retired-bg: #e4e2dc;
+  --status-injury-orange-fg: #9a3412;
+  --status-injury-orange-bg: #ffedd5;
+  --status-injury-red-fg: #9f1239;
+  --status-injury-red-bg: #ffe4e6;
 }
 
 html[data-theme="floodlight"] {
@@ -118,6 +142,12 @@ html[data-theme="floodlight"] {
   --status-arranged-bg: #1c2833;
   --status-expiring-fg: #f0b46a;
   --status-expiring-bg: #332414;
+  --status-retired-fg: #b7c0cc;
+  --status-retired-bg: #242a32;
+  --status-injury-orange-fg: #fdba74;
+  --status-injury-orange-bg: #431407;
+  --status-injury-red-fg: #fca5a5;
+  --status-injury-red-bg: #450a0a;
 }
 
 .status-pill {
@@ -143,6 +173,9 @@ html[data-theme="floodlight"] {
 .status-unprotected { color: var(--status-unprotected-fg); background: var(--status-unprotected-bg); }
 .status-arranged { color: var(--status-arranged-fg); background: var(--status-arranged-bg); }
 .status-expiring { color: var(--status-expiring-fg); background: var(--status-expiring-bg); }
+.status-retired { color: var(--status-retired-fg); background: var(--status-retired-bg); }
+.status-injury-orange { color: var(--status-injury-orange-fg); background: var(--status-injury-orange-bg); }
+.status-injury-red { color: var(--status-injury-red-fg); background: var(--status-injury-red-bg); }
 
 @layer base {
   button:not(:disabled),

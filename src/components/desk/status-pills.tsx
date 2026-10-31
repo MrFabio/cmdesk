@@ -1,5 +1,11 @@
-import { statusParts } from "@/lib/cm/labels";
+import { injurySpan, injuryTone, statusParts } from "@/lib/cm/labels";
 import { FLAG, type ParsedSave, type PlayerRec } from "@/lib/cm/types";
+
+export function InjuryTag({ days }: { days: number }) {
+  if (days < 1) return null;
+  const tone = injuryTone(days);
+  return <span className={`status-pill status-injury-${tone} shrink-0`}>{injurySpan(days)}</span>;
+}
 
 export function StatusPills({
   player,

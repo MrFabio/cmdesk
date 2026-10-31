@@ -35,6 +35,7 @@ function player(
     squadNo: 0,
     morale,
     condition,
+    injuryDays: -1,
     dobLabel: "",
     joinedLabel: "",
     expiresLabel: "",
@@ -58,7 +59,7 @@ function sheet(ca: number, shown: Partial<Record<AttrKey, number>>): Partial<Rec
   return attrs;
 }
 
-function career(rows: { player: PlayerRec; attrs: Partial<Record<AttrKey, number>> }[]): ParsedSave {
+function career(rows: { player: PlayerRec; attrs: Partial<Record<AttrKey, number>> }[]): ParsedSave & { players: PlayerRec[] } {
   const attrs = new Int8Array(rows.length * ATTRS.length);
   attrs.fill(-1);
   rows.forEach((row, index) => {
@@ -66,7 +67,7 @@ function career(rows: { player: PlayerRec; attrs: Partial<Record<AttrKey, number
       attrs[index * ATTRS.length + ATTR_INDEX[key as AttrKey]] = value ?? -1;
     }
   });
-  return { players: rows.map((row) => row.player), attrs } as ParsedSave;
+  return { players: rows.map((row) => row.player), attrs } as ParsedSave & { players: PlayerRec[] };
 }
 
 const gk = { handling: 16, reflexes: 14, agility: 14, consistency: 14, naturalFitness: 14 };
@@ -127,5 +128,35 @@ describe("suggested match side", () => {
     assert.equal(side.shapeName, "4-4-2");
     assert.equal(side.slots.length, 11);
     assert.equal(side.pitch[0]?.player.name, "Only");
+  });
+
+  it("names nine substitutes, with one goalkeeper and cover for each line", () => {
+    const rows: { player: PlayerRec; attrs: Partial<Record<AttrKey, number>> }[] = [];
+    const add = (name: string, posMask: number, sideMask: number, ca: number, attrs: Partial<Record<AttrKey, number>>) => {
+      rows.push({ player: player(name, posMask, sideMask, ca, 100, 12), attrs: sheet(ca, attrs) });
+    };
+    add("Keeper", 1, 0, 160, { handling: 18, reflexes: 16, agility: 16, consistency: 14 });
+    add("Reserve", 1, 0, 140, gk);
+    add("Youth", 1, 0, 140, gk);
+    for (let i = 0; i < 4; i++) add(`Back ${i}`, 4, 4, 150, defender);
+    for (let i = 0; i < 2; i++) add(`Cover ${i}`, 4, 4, 110, { marking: 10, positioning: 10, consistency: 10 });
+    for (let i = 0; i < 4; i++) add(`Mid ${i}`, 16, 4, 150, { passing: 16, positioning: 16, consistency: 14 });
+    for (let i = 0; i < 3; i++) add(`Spare ${i}`, 16, 4, 110, { passing: 10, positioning: 10, consistency: 10 });
+    for (let i = 0; i < 2; i++) add(`Front ${i}`, 64, 4, 150, { movement: 16, technique: 16, jumping: 16, consistency: 14 });
+    for (let i = 0; i < 3; i++) add(`Strike ${i}`, 64, 4, 110, { movement: 10, technique: 10, jumping: 10, consistency: 10 });
+    const save = career(rows);
+    const hits = save.players.map((row, index) => ({ index, player: row })).reverse();
+    const side = suggestMatch(save, hits, FALLBACK_SHAPE, "4-4-2");
+    const names = side.bench.map((pick) => pick.player.name);
+    assert.equal(names.length, 9);
+    assert.equal(new Set(side.bench.map((pick) => pick.index)).size, 9);
+    assert.deepEqual(
+      names.filter((name) => name === "Reserve" || name === "Youth" || name === "Keeper"),
+      ["Reserve"],
+    );
+    assert.equal(names.some((name) => name.startsWith("Cover")), true);
+    assert.equal(names.some((name) => name.startsWith("Spare")), true);
+    assert.equal(names.some((name) => name.startsWith("Strike")), true);
+    assert.equal(new Set(names).size, names.length);
   });
 });

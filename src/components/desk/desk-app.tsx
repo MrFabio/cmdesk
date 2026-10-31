@@ -7,6 +7,7 @@ import {
   activeFilterCount,
   defaultSortDir,
   freeAgents,
+  rateHits,
   searchPlayers,
   sortHits,
   squadOf,
@@ -73,6 +74,9 @@ export function DeskApp() {
   const currency = useSettings((state) => state.currency);
   const wagePeriod = useSettings((state) => state.wagePeriod);
   const fileRef = useRef<HTMLInputElement>(null);
+  const searchTimer = useRef<number | null>(null);
+  const searchEcho = useRef<string | null>(null);
+  const [searchBox, setSearchBox] = useState(query);
   const [over, setOver] = useState(false);
   const [warnOn, setWarnOn] = useState(true);
   const [clubTool, setClubTool] = useState<ClubTool>("squad");
@@ -93,6 +97,46 @@ export function DeskApp() {
     return unsub;
   }, [pack, theme]);
 
+  useEffect(() => {
+    if (searchEcho.current === query) {
+      searchEcho.current = null;
+      return;
+    }
+    if (searchTimer.current !== null) {
+      window.clearTimeout(searchTimer.current);
+      searchTimer.current = null;
+    }
+    setSearchBox(query);
+  }, [query]);
+
+  useEffect(
+    () => () => {
+      if (searchTimer.current !== null) window.clearTimeout(searchTimer.current);
+    },
+    [],
+  );
+
+  function scheduleSearch(value: string) {
+    setSearchBox(value);
+    if (searchTimer.current !== null) window.clearTimeout(searchTimer.current);
+    searchTimer.current = window.setTimeout(() => {
+      searchTimer.current = null;
+      if (useDesk.getState().query === value) return;
+      searchEcho.current = value;
+      setQuery(value);
+    }, 250);
+  }
+
+  function flushSearch() {
+    if (searchTimer.current !== null) {
+      window.clearTimeout(searchTimer.current);
+      searchTimer.current = null;
+    }
+    if (useDesk.getState().query === searchBox) return;
+    searchEcho.current = searchBox;
+    setQuery(searchBox);
+  }
+
   const lookups = useMemo(() => (save ? buildLookups(save) : null), [save]);
   const rows = useMemo(() => {
     if (!save || !lookups) return [];
@@ -104,7 +148,8 @@ export function DeskApp() {
           : searchPlayers(save, filters, query, { currency, wagePeriod });
     const key = sortKey === "pa" && !showPa ? "ca" : sortKey;
     const dir = sortKey === "pa" && !showPa ? "desc" : sortDir;
-    return sortHits(hits, key, dir, save, lookups);
+    const focus = place.kind === "search" ? { posMask: filters.posMask, sideMask: filters.sideMask } : undefined;
+    return sortHits(rateHits(save, hits, focus), key, dir, save, lookups);
   }, [save, lookups, place, filters, query, showPa, sortKey, sortDir, currency, wagePeriod]);
   const lineup = useMemo(() => {
     if (!save || place.kind !== "club" || clubTool !== "match") return null;
@@ -192,10 +237,6 @@ export function DeskApp() {
   ]);
 
   async function take(file: File) {
-    if (file.size > 120_000_000) {
-      setError("That file is larger than CMdesk will open.");
-      return;
-    }
     setBusy({ pct: 1, label: "Reading the file" });
     setWarnOn(true);
     try {
@@ -237,6 +278,7 @@ export function DeskApp() {
         <input
           ref={fileRef}
           type="file"
+          accept=".sav"
           className="sr-only"
           onChange={(event) => {
             const file = event.target.files?.[0];
@@ -273,6 +315,7 @@ export function DeskApp() {
       <input
         ref={fileRef}
         type="file"
+        accept=".sav"
         className="sr-only"
         onChange={(event) => {
           const file = event.target.files?.[0];
@@ -301,9 +344,15 @@ export function DeskApp() {
             className="relative ml-auto hidden min-w-0 flex-1 md:block"
             onSubmit={(event) => {
               event.preventDefault();
+              const pending = searchBox !== query;
+              flushSearch();
+              if (pending) return;
+              if (place.kind !== "search") {
+                showSearch();
+                return;
+              }
               const row = rows[highlight];
-              if (place.kind === "search" && row) openPlayer(row.index);
-              else showSearch();
+              if (row) openPlayer(row.index);
             }}
           >
             <Search
@@ -314,8 +363,8 @@ export function DeskApp() {
               id="desk-search"
               className={`${control} pl-8`}
               placeholder="Search players"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              value={searchBox}
+              onChange={(event) => scheduleSearch(event.target.value)}
               onFocus={showSearch}
               aria-label="Search players"
             />
@@ -337,13 +386,16 @@ export function DeskApp() {
           className="px-3 pb-2 md:hidden"
           onSubmit={(event) => {
             event.preventDefault();
-            showSearch();
+            const pending = searchBox !== query;
+            flushSearch();
+            if (!pending) showSearch();
           }}
         >
           <input
             id="desk-search-mobile"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            value={searchBox}
+            onChange={(event) => scheduleSearch(event.target.value)}
+            onFocus={showSearch}
             aria-label="Search players"
           />
         </form>
@@ -486,6 +538,7 @@ export function DeskApp() {
               )}
               {place.kind === "club" && clubTool === "match" && lineup ? (
                 <MatchView
+                  save={save}
                   lineup={lineup}
                   suggestion={suggestion}
                   mode={matchMode}
@@ -511,6 +564,11 @@ export function DeskApp() {
                   rows={rows}
                   lookups={lookups}
                   showClub={place.kind !== "club"}
+                  empty={
+                    place.kind === "search" && !query.trim() && filterCount === 0
+                      ? "Type a name or set a filter."
+                      : undefined
+                  }
                   highlight={highlight}
                   sortKey={sortKey}
                   sortDir={sortDir}
@@ -523,7 +581,13 @@ export function DeskApp() {
           ) : null}
           {playerIndex !== null && !settingsOpen ? (
             <div className="min-h-0 w-full border-line bg-bg xl:w-2/5 xl:max-w-xl xl:border-l">
-              <PlayerView save={save} index={playerIndex} onClose={closePlayer} onClub={showClub} />
+              <PlayerView
+                save={save}
+                index={playerIndex}
+                onClose={closePlayer}
+                onClub={showClub}
+                focus={place.kind === "search" ? { posMask: filters.posMask, sideMask: filters.sideMask } : undefined}
+              />
             </div>
           ) : null}
         </div>

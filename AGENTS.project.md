@@ -64,13 +64,13 @@ Required blocks: `staff.dat`, `player.dat`, `club.dat`, `nation.dat`, `first_nam
 
 ### Staff fields that matter
 
-ID int32 at 0 (this is the id, **not** the loop index). First/second/common name indexes at +4/+8/+12. DOB at +16. Nation at +26, second nation at +30. Caps/goals bytes at +34/+35. ClubJob int32 at +57. Job byte at +61 (`5` manager, `6` assistant, `11` player). DateJoinedClub +62, DateExpiresClub +70. Wage int32 +78, value int32 +82. Hidden personality bytes +86..+93. Player index int32 at +97.
+ID int32 at 0 (this is the id, **not** the loop index). First/second/common name indexes at +4/+8/+12. DOB at +16. Nation at +26, second nation at +30. Caps/goals bytes at +34/+35. ClubJob int32 at +57. Job byte at +61 (`5` manager, `6` assistant, `11` player, `16` retired). DateJoinedClub +62, DateExpiresClub +70. Wage int32 +78, value int32 +82. Hidden personality bytes +86..+93. Player index int32 at +97.
 
 Include anyone whose player index is `>= 0` and in range, with a name. Managers: prefer job 5 over job 6; they appear on the club header only.
 
 ### Player fields
 
-Squad number byte +4. CA int16 +5, PA int16 +7. Reputation u16 at +9/+11/+13. Role bytes +15..+21 (GK SW D DM M AM F), wing-back +22, side R/L/C at +23/+24/+25. A role counts when the byte is `>= 15`. If no role and wing-back `>= 15`, treat as D/AM. Attribute bytes are mapped in `writeAttrs` (signed). Left foot +48, right foot +59, morale +69. Display `-1` as unknown.
+Squad number byte +4. CA int16 +5, PA int16 +7. Reputation u16 at +9/+11/+13. Role bytes +15..+21 (GK, then sweeper at +16, then D DM M AM F). Ignore the sweeper byte: this database has no sweepers, and the desk does not show that position. Wing-back +22, side R/L/C at +23/+24/+25. A role counts when the byte is `>= 15`. If no role and wing-back `>= 15`, treat as D/AM. Attribute bytes are mapped in `writeAttrs` (signed). Left foot +48, right foot +59, morale +69. Display `-1` as unknown.
 
 **CA-dependent attrs** (anticipation, crossing, decisions, dribbling, finishing, handling, heading, long shots, marking, movement, one on ones, passing, penalties, positioning, reflexes, tackling, throw ins, vision) are stored as *intrinsics* (often negative or >20). The 1–20 profile value is `displayAttr` in `attr-display.ts` (CM Scout / Uncap20 formula: `ability = CA/2+80`, `v = (2*intrinsic+ability)*0.1`, then per-attr tweaks, round, clamp 1–20). Other attrs are shown as stored.
 
@@ -80,9 +80,10 @@ Preamble: int32 `preCount` at 0, int32 count at 4, records start at `8 + preCoun
 
 ### Flags
 
-`FLAG` in `types.ts`: free 1, loan 2, listed 4, request 8, listLoan 16, bosman 32, arranged 64, unprotected 128.
+`FLAG` in `types.ts`: free 1, loan 2, listed 4, request 8, listLoan 16, bosman 32, arranged 64, unprotected 128, retired 256. The roster column is a `Uint16Array` so retired fits beside the other eight bits.
 
-- Free: ClubJob `< 0`.
+- Free: ClubJob `< 0`, and the job byte is not retired.
+- Retired: job byte `16` (`JOB_PLAYER_RETIRED`). Still loaded (they keep a player index). Not a free agent, even when ClubJob is below 0. Search drops them while `hideRetired` is true, which is the default. That switch does not count as an active filter, so an empty box still waits for a name or another filter. Clear turns it back on. Status pill: `Retired`.
 - Listed / request / loan-list: transfer status bits 1 / 8 / 2.
 - Bosman: contract LeavingOnBosman `!== 0`.
 - Arranged: `TransferArrangedFor >= 0`. Only `< 0` means none.
@@ -103,8 +104,9 @@ Squad status uses the odd bit tests in `squadStatusLabel` (`& 240 == 0` uncertai
 - Sort is one desk-wide sort, not part of Filters. Default `pos` / asc. Clicking a column flips direction; a new column uses `defaultSortDir` (name/pos/age/nat/club/expires/status asc; ca/pa/wage/value/morale desc). Missing contract dates stay last. If “remember column sort” is on, write through to settings. On hydration, apply the saved sort only if the desk is still pos/asc. If PA is hidden and the sort is PA, show CA desc.
 - Saved searches persist separately so Reset settings does not delete them. Defaults in `DEFAULT_SEARCHES` are not stored and cannot be deleted.
 - Names: common (default) or full. Density, columns (value and morale off by default), hide goalkeeping for outfielders, mute attributes under 0/8/11/15 (0 = off; does not mute CA/PA).
-- Match → Suggested picks a side for the club’s shape, or a 4-4-2 when none decoded. The score is the position-rating fit on in-match attributes, then condition (full from 90% up), morale, and consistency. Recent ratings are not an input to the next match and are not used. Important matches is left out because the save does not say the next game is one.
-- On the player page, a marked attribute row uses the position-rating fit. The theme accent is weight at least 0.10. A second colour is weight from 0.05 up to 0.10. Several positions take the stronger mark. Side picks central vs wide. Sweeper uses the central-defender weights, a wide attacking mid uses the wide-mid weights, and every forward uses the central-forward weights. Feet are not marked. Finishing (0.024) and One on ones (no weight) stay unmarked. Hidden attributes are not in that fit. The same accent marks Consistency and Important matches for every player. The second colour marks Versatility, Temperament, and Pressure. Dirtiness and Injury proneness stay unmarked because a higher number is worse.
+- Match → Suggested picks a side for the club’s shape, or a 4-4-2 when none decoded. The score is the position-rating fit on in-match attributes, then condition (full from 90% up), morale, and consistency. Recent ratings are not an input to the next match and are not used. Important matches is left out because the save does not say the next game is one. The bench is nine when the squad has them: one goalkeeper, then cover for the lines in the shape, and no second goalkeeper. Injured players are left out of the side and the bench.
+- `injury.dat` is one 31-byte fitness row per staff index, then an int32 count and 48-byte injury entries. Condition is the words at +8 and +10, times each other, over 1,000,000. The int32 at +0x0e is the current injury, or below 0 when he is fit. Days still out are the int16 at +0x2c of that entry. Under 7 days reads “a few days”, under 14 “1 week”, under 21 “2 weeks”, then 3 weeks, 1 month, 6 weeks, 2 months, 3 months, 6 months, and over 6 months. Under 14 days is the orange injury. 14 days and more is the red injury. A tag sits on the player; the player page also shows the day count and the return date. Checked on a real career dated 3 Aug 2026: 5 days and 7 days orange, 16 days red.
+- On the player page, a marked attribute row uses the position-rating fit. The theme accent is weight at least 0.10. A second colour is weight from 0.05 up to 0.10. Several positions take the stronger mark. Side picks central vs wide. A wide attacking mid uses the wide-mid weights, and every forward uses the central-forward weights. A tactic sweeper circle is rated as a centre-back. Feet are not marked. Finishing (0.024) and One on ones (no weight) stay unmarked. Hidden attributes are not in that fit. The same accent marks Consistency and Important matches for every player. The second colour marks Versatility, Temperament, and Pressure. Dirtiness and Injury proneness stay unmarked because a higher number is worse.
 - Club set-piece boards rank the outfield squad by the attribute the game uses: Penalties, Free kicks, Corners, Throw ins. Penalties and throw-ins are ordered by the in-match value, so two profiles of 20 can split, and a second number shows when that value is above 20. Pure goalkeepers are omitted. Feet are shown for free kicks and corners.
 
 ## Sample career

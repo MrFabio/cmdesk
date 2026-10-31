@@ -2,13 +2,16 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { matchLineup } from "./match.ts";
 import { attrOf, parseSave, readHumanPick } from "./parse.ts";
+import { listPlayers, transferList } from "./players.ts";
 import { buildSample } from "./sample.ts";
-import { FLAG } from "./types.ts";
+import { injuryBackLabel, injurySpan, injuryTone } from "./labels.ts";
+import { FLAG, type PlayerRec } from "./types.ts";
 
-function find(save: ReturnType<typeof parseSave>, name: string) {
-  const player = save.players.find((row) => row.fullName === name || row.name === name);
-  assert.ok(player, `missing ${name}`);
-  return player;
+function find(save: ReturnType<typeof parseSave>, name: string): PlayerRec & { index: number } {
+  const players = listPlayers(save);
+  const index = players.findIndex((row) => row.fullName === name || row.name === name);
+  assert.ok(index >= 0, `missing ${name}`);
+  return Object.assign(players[index]!, { index });
 }
 
 describe("sample career", () => {
@@ -17,12 +20,13 @@ describe("sample career", () => {
     const packed = parseSave(buildSample(true), "Sample career.sav");
     assert.equal(plain.compressed, false);
     assert.equal(packed.compressed, true);
+    assert.equal(new Set(transferList(packed)).size, transferList(packed).length);
     assert.equal(packed.gameDateLabel, "15 Oct 2001");
     assert.equal(packed.clubs[packed.humanClubId]?.name, "Northbridge");
     assert.equal(packed.clubs[packed.humanClubId]?.manager, "Pat Quinn");
 
     const names = (save: typeof packed) =>
-      save.players.map((player) => [player.fullName, player.ca, player.pa, player.flags, player.loanFromClubId, player.clubId, player.condition].join("|")).sort();
+      listPlayers(save).map((player) => [player.fullName, player.ca, player.pa, player.flags, player.loanFromClubId, player.clubId, player.condition].join("|")).sort();
     assert.deepEqual(names(plain), names(packed));
     const tails = (save: typeof packed) =>
       save.clubs.map((club) => [club.tacticId, club.trainingTactics.join(","), club.matchSquad.join(",")].join("|"));
@@ -39,7 +43,7 @@ describe("sample career", () => {
     assert.equal(mira.pa, 160);
     assert.equal(mira.pos.startsWith("GK"), true);
     assert.equal(packed.clubs.find((club) => club.id === mira.clubId)?.short, "Northbridge");
-    assert.equal(attrOf(packed, packed.players.indexOf(mira), "handling"), 18);
+    assert.equal(attrOf(packed, mira.index, "handling"), 18);
 
     assert.equal(mira.condition, 100);
 
@@ -62,6 +66,20 @@ describe("sample career", () => {
 
     const luis = find(packed, "Luis Ferrer");
     assert.ok(luis.flags & FLAG.listed);
+    assert.equal(luis.injuryDays, 16);
+    assert.equal(injurySpan(luis.injuryDays), "2 weeks");
+    assert.equal(injuryTone(luis.injuryDays), "red");
+    assert.equal(injuryBackLabel(packed.gameYear, packed.gameDay, luis.injuryDays), "31 Oct 2001");
+    assert.equal(mira.injuryDays, -1);
+    assert.equal(injurySpan(5), "a few days");
+    assert.equal(injuryTone(5), "orange");
+    assert.equal(injurySpan(7), "1 week");
+    assert.equal(injuryTone(7), "orange");
+
+    const lars = find(packed, "Lars Holm");
+    assert.ok(lars.flags & FLAG.retired);
+    assert.equal(lars.flags & FLAG.free, 0);
+    assert.equal(lars.clubId < 0, true);
 
     const soren = find(packed, "Søren Lind");
     assert.equal(soren.fullName, "Søren Lind");
@@ -69,7 +87,7 @@ describe("sample career", () => {
 
     const ned = find(packed, "Ned Pell");
     assert.equal(ned.name, "Pello");
-    assert.equal(attrOf(packed, packed.players.indexOf(ned), "pace"), 4);
+    assert.equal(attrOf(packed, ned.index, "pace"), 4);
   });
 });
 
@@ -106,8 +124,8 @@ describe("match squad", () => {
   it("joins eleven slots and the bench, and skips an unknown id", () => {
     const buffer = buildSample(false);
     const before = parseSave(buffer, "sample-plain.sav");
-    const home = before.players.filter((player) => player.clubId === 0);
-    const away = before.players.find((player) => player.clubId === 1);
+    const home = listPlayers(before).filter((player) => player.clubId === 0);
+    const away = listPlayers(before).find((player) => player.clubId === 1);
     assert.ok(home.length >= 13);
     assert.ok(away);
     const ade = home.find((player) => player.fullName === "Ade Okonkwo");
@@ -148,8 +166,8 @@ describe("match squad", () => {
   it("leaves a player from another club off the pitch and the bench", () => {
     const buffer = buildSample(false);
     const before = parseSave(buffer, "sample-plain.sav");
-    const home = before.players.filter((player) => player.clubId === 1);
-    const outsider = before.players.find((player) => player.clubId === 0);
+    const home = listPlayers(before).filter((player) => player.clubId === 1);
+    const outsider = listPlayers(before).find((player) => player.clubId === 0);
     assert.ok(home.length >= 3);
     assert.ok(outsider);
     const squad = Array.from({ length: 20 }, () => -1);
@@ -212,11 +230,11 @@ function pickBlock(name: string, staffIds: number[], bench: number[]): Uint8Arra
 describe("picked team", () => {
   it("reads the eleven and bench from a human manager record", () => {
     const save = parseSave(buildSample(false), "sample-plain.sav");
-    const home = save.players.filter((player) => player.clubId === 0);
+    const home = listPlayers(save).filter((player) => player.clubId === 0);
     assert.ok(home.length >= 13);
     const ids = home.slice(0, 11).map((player) => player.id);
     const bench = [home[11]!.id, home[12]!.id];
-    const away = save.players.filter((player) => player.clubId === 1);
+    const away = listPlayers(save).filter((player) => player.clubId === 1);
     assert.ok(away.length >= 11);
     const squadIds = new Set(ids.concat(bench));
     const pick = readHumanPick(pickBlock("4-3-3", ids, bench), squadIds);
@@ -250,8 +268,8 @@ describe("picked team", () => {
 
   it("drops a pick that names an unknown id or another club", () => {
     const save = parseSave(buildSample(false), "sample-plain.sav");
-    const home = save.players.filter((player) => player.clubId === 0);
-    const away = save.players.find((player) => player.clubId === 1);
+    const home = listPlayers(save).filter((player) => player.clubId === 0);
+    const away = listPlayers(save).find((player) => player.clubId === 1);
     assert.ok(home.length >= 11);
     assert.ok(away);
     const ids = home.slice(0, 11).map((player) => player.id);

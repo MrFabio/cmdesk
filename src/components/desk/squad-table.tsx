@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import type { Hit, SortDir, SortKey } from "@/lib/cm/query";
-import { conditionText, money, personLabel, wageText, type Lookups } from "@/lib/cm/labels";
+import { bandOf, conditionText, money, personLabel, wageText, type Lookups } from "@/lib/cm/labels";
 import { COLUMN_DEFS, type ColumnId, useSettings } from "@/lib/cm/settings";
 import type { ParsedSave } from "@/lib/cm/types";
 import { MoraleText, Stat } from "./stat";
-import { StatusPills } from "./status-pills";
+import { InjuryTag, StatusPills } from "./status-pills";
 
 const WIDTH: Record<ColumnId, number> = {
-  name: 12,
+  name: 16,
   pos: 5.5,
+  rating: 7.5,
   age: 3,
   nat: 3.5,
   club: 8,
@@ -28,6 +29,7 @@ export function SquadTable({
   rows,
   lookups,
   showClub,
+  empty,
   highlight,
   sortKey,
   sortDir,
@@ -39,6 +41,7 @@ export function SquadTable({
   rows: Hit[];
   lookups: Lookups;
   showClub: boolean;
+  empty?: string;
   highlight: number;
   sortKey: SortKey;
   sortDir: SortDir;
@@ -59,8 +62,14 @@ export function SquadTable({
 
   const columns = useMemo(() => {
     const cells: Record<ColumnId, (hit: Hit) => ReactNode> = {
-      name: (hit) => <span className="truncate font-medium">{personLabel(hit.player, nameStyle)}</span>,
+      name: (hit) => (
+        <span className="flex min-w-0 items-center gap-1">
+          <span className="truncate font-medium">{personLabel(hit.player, nameStyle)}</span>
+          <InjuryTag days={hit.player.injuryDays} />
+        </span>
+      ),
       pos: (hit) => <span className="truncate font-mono text-xs">{hit.player.pos}</span>,
+      rating: (hit) => <RatingCell hit={hit} />,
       age: (hit) => <span className="font-mono">{hit.player.age || "–"}</span>,
       nat: (hit) => <span className="truncate font-mono text-xs">{lookups.nationCode(hit.player.nationId)}</span>,
       club: (hit) => <span className="truncate">{lookups.clubShort(hit.player.clubId)}</span>,
@@ -109,7 +118,7 @@ export function SquadTable({
   const start = Math.max(0, Math.floor(scrollTop / rowHeight) - 8);
   const count = Math.ceil(height / rowHeight) + 16;
   const slice = rows.slice(start, start + count);
-  const right = new Set(["age", "ca", "pa", "wage", "value", "condition"]);
+  const right = new Set(["age", "rating", "ca", "pa", "wage", "value", "condition"]);
 
   return (
     <div
@@ -129,6 +138,7 @@ export function SquadTable({
               <button
                 key={column.id}
                 type="button"
+                title={column.id === "rating" ? "Highlighted attributes for that position, plus a little stamina" : undefined}
                 aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
                 onClick={() => onSort(column.id)}
                 className={`inline-flex w-full items-center gap-0.5 px-2 py-2 ${right.has(column.id) ? "justify-end" : "justify-start"} ${active ? "text-fg" : ""}`}
@@ -146,7 +156,7 @@ export function SquadTable({
           })}
         </div>
         {rows.length === 0 ? (
-          <p className="px-3 py-8 text-sm text-muted">No players match.</p>
+          <p className="px-3 py-8 text-sm text-muted">{empty ?? "No players match."}</p>
         ) : (
           <div className="relative" style={{ height: rows.length * rowHeight }}>
             {slice.map((hit, offset) => {
@@ -175,5 +185,17 @@ export function SquadTable({
         )}
       </div>
     </div>
+  );
+}
+
+function RatingCell({ hit }: { hit: Hit }) {
+  const value = hit.rating ?? -1;
+  if (value < 0) return <span className="font-mono text-faint">–</span>;
+  const band = bandOf(value);
+  return (
+    <span className="inline-flex items-baseline justify-end gap-1" title={hit.ratingTitle || undefined}>
+      <span className={band ? `font-mono attr-b${band}` : "font-mono"}>{value.toFixed(1)}</span>
+      {hit.ratingSlot ? <span className="font-mono text-[10px] text-faint">{hit.ratingSlot}</span> : null}
+    </span>
   );
 }
