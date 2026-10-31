@@ -72,6 +72,25 @@ describe("column sort and saved-search filters", () => {
     );
   });
 
+  it("keeps a loan-list search to players offered for loan", () => {
+    const rows = [
+      player({ sortName: "Offered", flags: FLAG.listLoan }),
+      player({ sortName: "For sale", flags: FLAG.listed }),
+      player({ sortName: "Away", flags: FLAG.loan }),
+    ];
+    const save = {
+      roster: rosterFrom(rows),
+      clubs: [],
+      gameOrd: 1,
+      attrs: new Int8Array(),
+    } as unknown as ParsedSave;
+    assert.deepEqual(
+      searchPlayers(save, { ...emptyFilters(), listLoan: true }, "").map((hit) => hit.player.sortName),
+      ["Offered"],
+    );
+    assert.equal(searchPlayers(save, { ...emptyFilters(), listed: true }, "").length, 1);
+  });
+
   it("keeps an unprotected search to players with that flag", () => {
     const rows = [
       player({ sortName: "Open", flags: FLAG.unprotected }),
@@ -156,6 +175,30 @@ describe("column sort and saved-search filters", () => {
     ];
     assert.deepEqual(
       sortHits(hits, "rating", "desc", save, lookups).map((hit) => hit.player.sortName),
+      ["High", "Low", "None"],
+    );
+  });
+
+  it("sorts an attribute high to low and leaves an unknown value last", () => {
+    const ca = 100;
+    const rows = [
+      player({ sortName: "Low", ca }),
+      player({ sortName: "None", ca }),
+      player({ sortName: "High", ca }),
+    ];
+    const attrs = new Int8Array(rows.length * ATTRS.length);
+    attrs.fill(-1);
+    attrs[ATTR_INDEX.handling] = intrinsicForDisplay("handling", 8, ca);
+    attrs[2 * ATTRS.length + ATTR_INDEX.handling] = intrinsicForDisplay("handling", 18, ca);
+    const save = {
+      roster: rosterFrom(rows),
+      clubs: [],
+      gameOrd: 1,
+      attrs,
+    } as unknown as ParsedSave;
+    const hits = rows.map((row, index) => ({ index, player: row }));
+    assert.deepEqual(
+      sortHits(hits, "handling", "desc", save, lookups).map((hit) => hit.player.sortName),
       ["High", "Low", "None"],
     );
   });

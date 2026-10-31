@@ -2,10 +2,13 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import type { Hit, SortDir, SortKey } from "@/lib/cm/query";
 import { bandOf, conditionText, money, personLabel, wageText, type Lookups } from "@/lib/cm/labels";
+import { attrOf } from "@/lib/cm/parse";
+import { lineAttributes, SQUAD_LINES, type SquadLineId } from "@/lib/cm/positions";
 import { COLUMN_DEFS, type ColumnId, useSettings } from "@/lib/cm/settings";
 import type { ParsedSave } from "@/lib/cm/types";
 import { MoraleText, Stat } from "./stat";
 import { InjuryTag, StatusPills } from "./status-pills";
+import { chipClass } from "./ui";
 
 const WIDTH: Record<ColumnId, number> = {
   name: 16,
@@ -24,6 +27,55 @@ const WIDTH: Record<ColumnId, number> = {
   condition: 5.25,
 };
 
+const RIGHT = new Set<ColumnId>(["age", "rating", "ca", "pa", "wage", "value", "condition"]);
+
+type ShownColumn = {
+  id: string;
+  sort: SortKey;
+  label: string;
+  rem: number;
+  align: "start" | "end";
+  title?: string;
+  cell: (hit: Hit) => ReactNode;
+};
+
+function attrRem(label: string): number {
+  return Math.max(4.25, Math.min(7.25, label.length * 0.42 + 2.1));
+}
+
+export function SquadLineBar({
+  line,
+  onChange,
+}: {
+  line: SquadLineId;
+  onChange: (line: SquadLineId) => void;
+}) {
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-2">
+      <span className="text-xs text-faint">Line</span>
+      <div className="flex flex-wrap gap-1" role="radiogroup" aria-label="Position line">
+        {SQUAD_LINES.map((item) => {
+          const on = line === item.id;
+          const attrs = item.id === "all" ? "" : lineAttributes(item.id).map((attr) => attr.label).join(", ");
+          return (
+            <button
+              key={item.id}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              title={attrs ? `${item.title}. ${attrs}.` : item.title}
+              className={chipClass(on)}
+              onClick={() => onChange(item.id)}
+            >
+              {item.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function SquadTable({
   save,
   rows,
@@ -31,6 +83,7 @@ export function SquadTable({
   showClub,
   empty,
   highlight,
+  line,
   sortKey,
   sortDir,
   onHighlight,
@@ -43,11 +96,12 @@ export function SquadTable({
   showClub: boolean;
   empty?: string;
   highlight: number;
+  line: SquadLineId;
   sortKey: SortKey;
   sortDir: SortDir;
   onHighlight: (index: number) => void;
   onOpen: (playerIndex: number) => void;
-  onSort: (column: ColumnId) => void;
+  onSort: (column: SortKey) => void;
 }) {
   const columnsOn = useSettings((state) => state.columns);
   const showPa = useSettings((state) => state.showPa);
@@ -82,17 +136,37 @@ export function SquadTable({
       morale: (hit) => <MoraleText value={hit.player.morale} compact />,
       condition: (hit) => <span className="font-mono text-xs">{conditionText(hit.player.condition)}</span>,
     };
-    return COLUMN_DEFS.filter((column) => {
+    const base: ShownColumn[] = COLUMN_DEFS.filter((column) => {
       if (!columnsOn[column.id]) return false;
       if (column.id === "pa" && !showPa) return false;
       if (column.id === "club" && !showClub) return false;
       return true;
     }).map((column) => ({
-      ...column,
+      id: column.id,
+      sort: column.id,
+      label: column.label,
       rem: column.id === "wage" ? (wagePeriod === "year" ? 8.25 : wagePeriod === "month" ? 7.5 : 6.75) : WIDTH[column.id],
+      align: RIGHT.has(column.id) ? "end" : "start",
+      title: column.id === "rating" ? "Highlighted attributes for that position, plus a little stamina" : undefined,
       cell: cells[column.id],
     }));
-  }, [columnsOn, showPa, showClub, nameStyle, lookups, save, currency, wagePeriod]);
+    const extras: ShownColumn[] = lineAttributes(line).map((attr) => ({
+      id: attr.key,
+      sort: attr.key,
+      label: attr.label,
+      rem: attrRem(attr.label),
+      align: "end",
+      title:
+        attr.rank === "primary"
+          ? `${attr.label}. Main attribute for this line.`
+          : `${attr.label}. Also used for this line.`,
+      cell: (hit) => <Stat value={attrOf(save, hit.index, attr.key)} kind="attr" />,
+    }));
+    const afterRating = base.findIndex((column) => column.id === "rating");
+    const afterPos = base.findIndex((column) => column.id === "pos");
+    const at = afterRating >= 0 ? afterRating + 1 : afterPos >= 0 ? afterPos + 1 : 1;
+    return [...base.slice(0, at), ...extras, ...base.slice(at)];
+  }, [columnsOn, showPa, showClub, nameStyle, lookups, save, currency, wagePeriod, line]);
 
   useEffect(() => {
     const el = scroller.current;
@@ -118,7 +192,6 @@ export function SquadTable({
   const start = Math.max(0, Math.floor(scrollTop / rowHeight) - 8);
   const count = Math.ceil(height / rowHeight) + 16;
   const slice = rows.slice(start, start + count);
-  const right = new Set(["age", "rating", "ca", "pa", "wage", "value", "condition"]);
 
   return (
     <div
@@ -132,23 +205,24 @@ export function SquadTable({
           style={{ gridTemplateColumns: template }}
         >
           {columns.map((column) => {
-            const active = sortKey === column.id;
+            const active = sortKey === column.sort;
             const heading = column.label === "Ability" ? "CA" : column.label === "Potential" ? "PA" : column.label;
+            const end = column.align === "end";
             return (
               <button
                 key={column.id}
                 type="button"
-                title={column.id === "rating" ? "Highlighted attributes for that position, plus a little stamina" : undefined}
+                title={column.title}
                 aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
-                onClick={() => onSort(column.id)}
-                className={`inline-flex w-full items-center gap-0.5 px-2 py-2 ${right.has(column.id) ? "justify-end" : "justify-start"} ${active ? "text-fg" : ""}`}
+                onClick={() => onSort(column.sort)}
+                className={`inline-flex w-full min-w-0 items-center gap-0.5 overflow-hidden px-2 py-2 ${end ? "justify-end" : "justify-start"} ${active ? "text-fg" : ""}`}
               >
-                {heading}
+                <span className="min-w-0 truncate">{heading}</span>
                 {active ? (
                   sortDir === "asc" ? (
-                    <ChevronUp className="size-3" aria-hidden="true" />
+                    <ChevronUp className="size-3 shrink-0" aria-hidden="true" />
                   ) : (
-                    <ChevronDown className="size-3" aria-hidden="true" />
+                    <ChevronDown className="size-3 shrink-0" aria-hidden="true" />
                   )
                 ) : null}
               </button>
@@ -174,7 +248,7 @@ export function SquadTable({
                   style={{ top: rowIndex * rowHeight, height: rowHeight, gridTemplateColumns: template }}
                 >
                   {columns.map((column) => (
-                    <span key={column.id} className={`min-w-0 px-2 ${right.has(column.id) ? "text-right" : "text-left"}`}>
+                    <span key={column.id} className={`min-w-0 px-2 ${column.align === "end" ? "text-right" : "text-left"}`}>
                       {column.cell(hit)}
                     </span>
                   ))}

@@ -13,7 +13,7 @@ CMdesk is not affiliated with Sports Interactive or Square Enix. It is not the g
 - Open a local `.sav`, or **Load the sample career** (a fictional Albion league, so the desk works before you have a real file).
 - Walk a club’s squad, the free agents, or a search.
 - Sort by clicking a column. The sort is remembered in this browser.
-- Save a search. A few useful ones are already there: free agents, Bosman, unprotected, expiring, listed, requests, on loan, and youth with high potential.
+- Save a search. A few useful ones are already there: free agents, Bosman, unprotected, expiring, listed, loan list, requests, on loan, and youth with high potential.
 - Open a player for attributes, contract, and status.
 - Change the theme, attribute colours, currency, and whether wages are weekly, monthly, or yearly. Settings live in this browser only.
 

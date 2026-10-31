@@ -20,6 +20,7 @@ export const DEFAULT_SEARCHES: SavedSearch[] = [
   preset("Unprotected", { unprotected: true }),
   preset("Expiring soon", { expiring: true }),
   preset("Listed", { listed: true }),
+  preset("Loan list", { listLoan: true }),
   preset("Requests", { request: true }),
   preset("On loan", { loan: true }),
   preset("Youth, high PA", { ageMax: "21", paMin: "150" }),

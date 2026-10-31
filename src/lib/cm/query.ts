@@ -3,15 +3,17 @@ import { attrOf } from "./parse.ts";
 import { clubPlayerIndexes, nameMatches, playerAt } from "./players.ts";
 import { roleRating } from "./positions.ts";
 import type { ColumnId, SortDir } from "./settings.ts";
-import { FLAG, ROLE_MASK, type AttrKey, type ParsedSave, type PlayerRec } from "./types.ts";
+import { ATTR_INDEX, FLAG, ROLE_MASK, type AttrKey, type ParsedSave, type PlayerRec } from "./types.ts";
 
-export type SortKey = ColumnId;
+export type SortKey = ColumnId | AttrKey;
 export type { SortDir };
 
 export type Filters = {
   free: boolean;
   loan: boolean;
   listed: boolean;
+  /** Transfer status bit 2: available for a loan, not currently out on loan. */
+  listLoan: boolean;
   request: boolean;
   bosman: boolean;
   unprotected: boolean;
@@ -51,6 +53,7 @@ export function emptyFilters(): Filters {
     free: false,
     loan: false,
     listed: false,
+    listLoan: false,
     request: false,
     bosman: false,
     unprotected: false,
@@ -76,8 +79,21 @@ export function emptyFilters(): Filters {
   };
 }
 
+export function isAttrSort(key: SortKey): key is AttrKey {
+  return Object.prototype.hasOwnProperty.call(ATTR_INDEX, key);
+}
+
 export function defaultSortDir(key: SortKey): SortDir {
-  if (key === "ca" || key === "pa" || key === "wage" || key === "value" || key === "morale" || key === "condition" || key === "rating")
+  if (
+    isAttrSort(key) ||
+    key === "ca" ||
+    key === "pa" ||
+    key === "wage" ||
+    key === "value" ||
+    key === "morale" ||
+    key === "condition" ||
+    key === "rating"
+  )
     return "desc";
   return "asc";
 }
@@ -101,6 +117,7 @@ export function activeFilterCount(filters: Filters): number {
   if (filters.free) count += 1;
   if (filters.loan) count += 1;
   if (filters.listed) count += 1;
+  if (filters.listLoan) count += 1;
   if (filters.request) count += 1;
   if (filters.bosman) count += 1;
   if (filters.unprotected) count += 1;
@@ -187,6 +204,7 @@ export function searchPlayers(
     if (filters.free && !(flags & FLAG.free)) continue;
     if (filters.loan && !(flags & FLAG.loan)) continue;
     if (filters.listed && !(flags & FLAG.listed)) continue;
+    if (filters.listLoan && !(flags & FLAG.listLoan)) continue;
     if (filters.request && !(flags & FLAG.request)) continue;
     if (filters.bosman && !(flags & FLAG.bosman)) continue;
     if (filters.unprotected && !(flags & FLAG.unprotected)) continue;
@@ -231,14 +249,17 @@ export function searchPlayers(
 
 export function sortHits(hits: Hit[], key: SortKey, dir: SortDir, save: ParsedSave, lookups: Lookups): Hit[] {
   const list = hits.slice();
+  const attrKey = isAttrSort(key) ? key : null;
   list.sort((a, b) => {
-    if (key === "expires" || key === "condition" || key === "rating") {
+    if (key === "expires" || key === "condition" || key === "rating" || attrKey) {
       const raw =
         key === "expires"
           ? [a.player.expiresOrd, b.player.expiresOrd]
           : key === "condition"
             ? [a.player.condition, b.player.condition]
-            : [a.rating ?? -1, b.rating ?? -1];
+            : attrKey
+              ? [attrOf(save, a.index, attrKey), attrOf(save, b.index, attrKey)]
+              : [a.rating ?? -1, b.rating ?? -1];
       const placed = missingLast(raw[0], raw[1]);
       if (placed !== 0) return placed;
       const diff = raw[0] - raw[1];

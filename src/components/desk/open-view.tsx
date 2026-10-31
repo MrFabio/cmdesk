@@ -21,7 +21,7 @@ export function OpenView({
       <h1 className="mt-2 text-3xl font-semibold tracking-tight">CMdesk</h1>
       <p className="mt-3 text-sm text-muted">
         An online Championship Manager 01/02 save viewer, not a save editor. Open a CM 01/02 .sav and read the squad,
-        the contract, and who is free, listed, or on loan. Nothing is uploaded.
+        the contract, and who is free, listed, listed for loan, or on loan. Nothing is uploaded.
       </p>
 
       <div

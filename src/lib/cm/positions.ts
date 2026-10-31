@@ -266,6 +266,26 @@ const M = roleBit("M");
 const AM = roleBit("AM");
 const F = roleBit("F");
 
+/**
+ * One choice on the squad list. Midfield is the three middle lines.
+ * Attackers are forwards. A player who can play the line stays in it,
+ * even when he can also play somewhere else.
+ */
+export const SQUAD_LINES = [
+  { id: "all", label: "All", title: "Usual columns, every player", posMask: 0 },
+  { id: "gk", label: "GK", title: "Goalkeepers", posMask: GK },
+  { id: "def", label: "Defenders", title: "Players who can play defender", posMask: D },
+  {
+    id: "mid",
+    label: "Midfield",
+    title: "Defensive midfield, midfield, and attacking midfield",
+    posMask: DM | M | AM,
+  },
+  { id: "att", label: "Attackers", title: "Forwards", posMask: F },
+] as const;
+
+export type SquadLineId = (typeof SQUAD_LINES)[number]["id"];
+
 const WIDE = SIDE.right | SIDE.left;
 
 function slotsFor(posMask: number, sideMask: number): Slot[] {
@@ -291,6 +311,38 @@ function slotsFor(posMask: number, sideMask: number): Slot[] {
   }
   if (posMask & F) slots.push("FC");
   return slots;
+}
+
+export type LineAttr = {
+  key: AttrKey;
+  label: string;
+  rank: AttrRank;
+  weight: number;
+};
+
+/**
+ * Attributes the squad list adds for a line: weight 0.05 and up, across
+ * central and wide, heaviest first. All adds nothing.
+ */
+export function lineAttributes(id: SquadLineId): LineAttr[] {
+  const mask = SQUAD_LINES.find((line) => line.id === id)?.posMask ?? 0;
+  if (!mask) return [];
+  const best = new Map<AttrKey, number>();
+  for (const slot of slotsFor(mask, SIDE.right | SIDE.left | SIDE.centre)) {
+    for (const key of Object.keys(WEIGHTS[slot]) as AttrKey[]) {
+      const weight = WEIGHTS[slot][key] ?? 0;
+      if (weight < SECONDARY) continue;
+      if (weight > (best.get(key) ?? 0)) best.set(key, weight);
+    }
+  }
+  return [...best.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([key, weight]) => ({
+      key,
+      label: ATTR_LABEL.get(key) ?? key,
+      rank: rankForWeight(weight) ?? "secondary",
+      weight,
+    }));
 }
 
 /**

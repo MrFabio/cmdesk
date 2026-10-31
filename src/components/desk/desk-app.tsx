@@ -7,6 +7,7 @@ import {
   activeFilterCount,
   defaultSortDir,
   freeAgents,
+  isAttrSort,
   rateHits,
   searchPlayers,
   sortHits,
@@ -17,7 +18,8 @@ import { suggestionFor } from "@/lib/cm/suggest";
 import { rankSetPiece, SET_PIECES, setPieceById, type SetPieceId } from "@/lib/cm/set-pieces";
 import { useDesk } from "@/lib/cm/store";
 import { useSettings } from "@/lib/cm/settings";
-import type { ColumnId } from "@/lib/cm/settings";
+import { SQUAD_LINES, lineAttributes, type SquadLineId } from "@/lib/cm/positions";
+import type { SortKey } from "@/lib/cm/query";
 import { FilterBar } from "./filters";
 import { OpenView } from "./open-view";
 import { PlayerView } from "./player-view";
@@ -25,7 +27,7 @@ import { MatchView } from "./match-view";
 import { SetPieceView } from "./set-piece-view";
 import { SettingsView } from "./settings-view";
 import { Sidebar } from "./sidebar";
-import { SquadTable } from "./squad-table";
+import { SquadLineBar, SquadTable } from "./squad-table";
 import { button, chipClass, control } from "./ui";
 
 type ClubTool = "squad" | "match" | SetPieceId;
@@ -35,6 +37,13 @@ const CLUB_TOOLS: { id: ClubTool; label: string }[] = [
   { id: "match", label: "Match" },
   ...SET_PIECES.map((piece) => ({ id: piece.id, label: piece.label })),
 ];
+
+function lineCount(id: SquadLineId, count: number): string {
+  if (id === "all") return `${count} players`;
+  const singular =
+    id === "gk" ? "goalkeeper" : id === "def" ? "defender" : id === "mid" ? "midfielder" : "attacker";
+  return `${count} ${count === 1 ? singular : `${singular}s`}`;
+}
 
 export function DeskApp() {
   const save = useDesk((state) => state.save);
@@ -81,6 +90,7 @@ export function DeskApp() {
   const [warnOn, setWarnOn] = useState(true);
   const [clubTool, setClubTool] = useState<ClubTool>("squad");
   const [matchMode, setMatchMode] = useState<"picked" | "suggested">("picked");
+  const [squadLine, setSquadLine] = useState<SquadLineId>("all");
 
   useEffect(() => {
     const apply = () => {
@@ -138,19 +148,29 @@ export function DeskApp() {
   }
 
   const lookups = useMemo(() => (save ? buildLookups(save) : null), [save]);
+  const lineMask = SQUAD_LINES.find((item) => item.id === squadLine)?.posMask ?? 0;
+  const ratingFocus = useMemo(
+    () =>
+      lineMask
+        ? { posMask: lineMask, sideMask: 0 }
+        : place.kind === "search"
+          ? { posMask: filters.posMask, sideMask: filters.sideMask }
+          : undefined,
+    [lineMask, place, filters.posMask, filters.sideMask],
+  );
   const rows = useMemo(() => {
     if (!save || !lookups) return [];
-    const hits =
+    let hits =
       place.kind === "club"
         ? squadOf(save, place.clubId)
         : place.kind === "free"
           ? freeAgents(save)
           : searchPlayers(save, filters, query, { currency, wagePeriod });
+    if (lineMask) hits = hits.filter((hit) => (hit.player.posMask & lineMask) !== 0);
     const key = sortKey === "pa" && !showPa ? "ca" : sortKey;
     const dir = sortKey === "pa" && !showPa ? "desc" : sortDir;
-    const focus = place.kind === "search" ? { posMask: filters.posMask, sideMask: filters.sideMask } : undefined;
-    return sortHits(rateHits(save, hits, focus), key, dir, save, lookups);
-  }, [save, lookups, place, filters, query, showPa, sortKey, sortDir, currency, wagePeriod]);
+    return sortHits(rateHits(save, hits, ratingFocus), key, dir, save, lookups);
+  }, [save, lookups, place, filters, query, showPa, sortKey, sortDir, currency, wagePeriod, lineMask, ratingFocus]);
   const lineup = useMemo(() => {
     if (!save || place.kind !== "club" || clubTool !== "match") return null;
     const club = save.clubs.find((row) => row.id === place.clubId);
@@ -175,11 +195,28 @@ export function DeskApp() {
           : rows;
   const filterCount = activeFilterCount(filters);
 
-  function cycleSort(column: ColumnId) {
+  function cycleSort(column: SortKey) {
     const nextDir =
       sortKey === column ? (sortDir === "asc" ? "desc" : "asc") : defaultSortDir(column);
     setSort(column, nextDir);
-    if (useSettings.getState().rememberSort) useSettings.getState().setSavedSort(column, nextDir);
+    if (isAttrSort(column) || !useSettings.getState().rememberSort) return;
+    useSettings.getState().setSavedSort(column, nextDir);
+  }
+
+  function selectLine(next: SquadLineId) {
+    setSquadLine(next);
+    const key = useDesk.getState().sortKey;
+    if (!isAttrSort(key)) {
+      setHighlight(0);
+      return;
+    }
+    const still = lineAttributes(next).some((attr) => attr.key === key);
+    if (still) {
+      setHighlight(0);
+      return;
+    }
+    const settings = useSettings.getState();
+    setSort(settings.rememberSort ? settings.sortKey : "pos", settings.rememberSort ? settings.sortDir : "asc");
   }
 
   useEffect(() => {
@@ -491,10 +528,12 @@ export function DeskApp() {
                       </h1>
                       <p className="mt-1 text-xs text-muted">
                         {place.kind === "free"
-                          ? `${rows.length} without a club`
+                          ? squadLine === "all"
+                            ? `${rows.length} without a club`
+                            : `${lineCount(squadLine, rows.length)} without a club`
                           : club
-                            ? `${lookups.nation(club.nationId)} · ${lookups.compName(club.divisionId)}${club.manager ? ` · ${club.manager}` : ""} · ${money(club.cash, currency)} · ${rows.length} players`
-                            : `${rows.length} players`}
+                            ? `${lookups.nation(club.nationId)} · ${lookups.compName(club.divisionId)}${club.manager ? ` · ${club.manager}` : ""} · ${money(club.cash, currency)} · ${lineCount(squadLine, rows.length)}`
+                            : lineCount(squadLine, rows.length)}
                       </p>
                     </div>
                     {place.kind === "club" && club && club.id !== save.humanClubId ? (
@@ -559,23 +598,29 @@ export function DeskApp() {
                   onOpen={openPlayer}
                 />
               ) : (
-                <SquadTable
-                  save={save}
-                  rows={rows}
-                  lookups={lookups}
-                  showClub={place.kind !== "club"}
-                  empty={
-                    place.kind === "search" && !query.trim() && filterCount === 0
-                      ? "Type a name or set a filter."
-                      : undefined
-                  }
-                  highlight={highlight}
-                  sortKey={sortKey}
-                  sortDir={sortDir}
-                  onHighlight={setHighlight}
-                  onOpen={openPlayer}
-                  onSort={cycleSort}
-                />
+                <>
+                  <SquadLineBar line={squadLine} onChange={selectLine} />
+                  <SquadTable
+                    save={save}
+                    rows={rows}
+                    lookups={lookups}
+                    showClub={place.kind !== "club"}
+                    empty={
+                      place.kind === "search" && !query.trim() && filterCount === 0
+                        ? "Type a name or set a filter."
+                        : squadLine !== "all" && rows.length === 0
+                          ? "No players in this line."
+                          : undefined
+                    }
+                    highlight={highlight}
+                    line={squadLine}
+                    sortKey={sortKey}
+                    sortDir={sortDir}
+                    onHighlight={setHighlight}
+                    onOpen={openPlayer}
+                    onSort={cycleSort}
+                  />
+                </>
               )}
             </section>
           ) : null}
@@ -586,7 +631,7 @@ export function DeskApp() {
                 index={playerIndex}
                 onClose={closePlayer}
                 onClub={showClub}
-                focus={place.kind === "search" ? { posMask: filters.posMask, sideMask: filters.sideMask } : undefined}
+                focus={ratingFocus}
               />
             </div>
           ) : null}

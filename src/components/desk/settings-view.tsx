@@ -1,5 +1,6 @@
 import { X } from "lucide-react";
 import { CURRENCIES, WAGE_PERIODS, rateNote } from "@/lib/cm/labels";
+import { isAttrSort } from "@/lib/cm/query";
 import { COLUMN_DEFS, MUTE_STOPS, PACKS, THEMES, useSettings } from "@/lib/cm/settings";
 import { useDesk } from "@/lib/cm/store";
 import { Stat } from "./stat";
@@ -191,7 +192,7 @@ export function SettingsView({ onClose }: { onClose: () => void }) {
                 setRememberSort(next);
                 if (next) {
                   const desk = useDesk.getState();
-                  setSavedSort(desk.sortKey, desk.sortDir);
+                  if (!isAttrSort(desk.sortKey)) setSavedSort(desk.sortKey, desk.sortDir);
                 }
               }}
             >

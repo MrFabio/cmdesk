@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { caDependentFloat, displayAttr, intrinsicForDisplay } from "./attr-display.ts";
-import { attrRanksFor, playedSpots, roleRating, type AttrRank, type PitchSpot } from "./positions.ts";
+import { attrRanksFor, lineAttributes, playedSpots, roleRating, type AttrRank, type PitchSpot } from "./positions.ts";
 import { rankSetPiece } from "./set-pieces.ts";
 import { ATTRS, ATTR_INDEX, type AttrKey, type ParsedSave, type PlayerRec } from "./types.ts";
 
@@ -97,6 +97,43 @@ describe("key attributes for a position", () => {
       teamwork: "secondary",
       technique: "primary",
     });
+  });
+
+  it("lists the highlighted attributes for a squad line, heaviest first", () => {
+    assert.deepEqual(lineAttributes("all"), []);
+    assert.deepEqual(
+      lineAttributes("gk").map((attr) => attr.key),
+      ["handling", "agility", "reflexes"],
+    );
+    assert.equal(lineAttributes("gk").find((attr) => attr.key === "handling")?.rank, "primary");
+    assert.equal(lineAttributes("gk").find((attr) => attr.key === "reflexes")?.rank, "secondary");
+    assert.deepEqual(
+      lineAttributes("def").map((attr) => attr.key),
+      ["positioning", "technique", "dribbling", "marking", "teamwork", "passing", "jumping", "movement"],
+    );
+    assert.deepEqual(
+      lineAttributes("mid").map((attr) => attr.key),
+      [
+        "movement",
+        "technique",
+        "positioning",
+        "dribbling",
+        "teamwork",
+        "vision",
+        "passing",
+        "stamina",
+        "workRate",
+        "jumping",
+      ],
+    );
+    assert.deepEqual(
+      lineAttributes("att").map((attr) => attr.key),
+      ["movement", "technique", "jumping", "positioning", "stamina", "dribbling", "passing"],
+    );
+    assert.equal(
+      lineAttributes("att").some((attr) => attr.key === "finishing"),
+      false,
+    );
   });
 
   it("still marks the match hidden attributes when the player has no position", () => {

@@ -65,6 +65,7 @@ export function FilterBar({
         <Toggle on={filters.free} label="Free" onClick={() => onChange({ free: !filters.free })} />
         <Toggle on={filters.loan} label="On loan" onClick={() => onChange({ loan: !filters.loan })} />
         <Toggle on={filters.listed} label="Listed" onClick={() => onChange({ listed: !filters.listed })} />
+        <Toggle on={filters.listLoan} label="Listed for loan" onClick={() => onChange({ listLoan: !filters.listLoan })} />
         <Toggle on={filters.request} label="Transfer request" onClick={() => onChange({ request: !filters.request })} />
         <Toggle on={filters.bosman} label="Bosman" onClick={() => onChange({ bosman: !filters.bosman })} />
         <Toggle on={filters.unprotected} label="Unprotected" onClick={() => onChange({ unprotected: !filters.unprotected })} />

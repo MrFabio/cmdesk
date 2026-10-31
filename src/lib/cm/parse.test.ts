@@ -66,6 +66,11 @@ describe("sample career", () => {
 
     const luis = find(packed, "Luis Ferrer");
     assert.ok(luis.flags & FLAG.listed);
+
+    const ellis = find(packed, "Ellis Ward");
+    assert.ok(ellis.flags & FLAG.listLoan);
+    assert.equal(ellis.flags & FLAG.listed, 0);
+    assert.equal(ellis.flags & FLAG.loan, 0);
     assert.equal(luis.injuryDays, 16);
     assert.equal(injurySpan(luis.injuryDays), "2 weeks");
     assert.equal(injuryTone(luis.injuryDays), "red");
